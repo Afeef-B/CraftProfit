@@ -64,6 +64,17 @@ local function knowRecipe(ns, clothPrice)
   if clothPrice then ns.Prices.SetManual(CLOTH, clothPrice) end
 end
 
+-- "Scan tracked" (no collect) stored the lowest listing as the AH price: a 50g
+-- mistake listing next to 420g and 430g ones.
+local function scanTrackedSawMistake(ns)
+  Mock.ah.auctions = {
+    bagAuction("Flipper", gold(50)), bagAuction("Bob", gold(420)), bagAuction("Carl", gold(430)),
+  }
+  assert(ns.Scanner.StartTargeted({ { id = BAG, name = BAG_NAME } }))
+  assert(Mock.pump(ns))
+  assert(ns.Prices.GetAH(BAG) == gold(50), "stored AH price is the mistake listing")
+end
+
 local function events(ns)
   local count = { n = 0 }
   ns.On("SELL_CHANGED", function() count.n = count.n + 1 end)
@@ -693,6 +704,325 @@ return {
     T.eq(ns.Sell.State().canPost, true)
     T.eq(ns.Sell.Post(), true)
     T.eq(#Mock.started, 1, "only Post posts")
+  end,
+
+  post_waits_for_price_check = function(T)
+    local ns = setup()
+    scanTrackedSawMistake(ns)
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    T.ok(ns.Sell.PutItem(0, 1))
+    local s = ns.Sell.State()
+    T.eq(s.status, "Searching...")
+    T.eq(s.canPost, false, "the stored 50g is not a price to post at")
+    T.eq(s.reason, "checking")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    T.ok(Mock.pump(ns))
+    s = ns.Sell.State()
+    T.eq(s.unit, gold(419, 99), "priced from the fresh listings")
+    T.eq(s.canPost, true)
+    T.eq(s.reason, nil)
+  end,
+
+  failed_check_needs_typed_price = function(T)
+    local ns = setup()
+    scanTrackedSawMistake(ns)
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    T.ok(ns.Sell.PutItem(0, 1))
+    ns.Scanner.Stop("AH closed")              -- the check ends without rows
+    local s = ns.Sell.State()
+    T.eq(s.status, NO_ANSWER)
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "no-check")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    ns.Sell.SetUnit(gold(400))
+    s = ns.Sell.State()
+    T.eq(s.canPost, true, "a price the player typed is posted as typed")
+    T.eq(s.reason, nil)
+    T.eq(ns.Sell.Post(), true)
+    T.eq(Mock.started[1][1], gold(400))
+  end,
+
+  empty_check_ignores_stale_stored_price = function(T)
+    local ns = setup()
+    -- an earlier Scan tracked saw a lone 50g listing, which has since been bought
+    ns.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    putBag(ns, 3, false)
+    T.eq(ns.Sell.State().reason, "checking")
+    T.ok(Mock.pump(ns))
+    local s = ns.Sell.State()
+    T.eq(#s.listings, 0, "nothing is listed now")
+    T.eq(s.unit, nil, "the stale stored price is not used")
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "no-price")
+  end,
+
+  empty_check_falls_back_to_manual_then_auctionator = function(T)
+    -- Auctionator only
+    local ns = setup()
+    Atr_GetAuctionBuyout = function() return gold(300) end
+    ns.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    putBag(ns, 3)
+    T.eq(ns.Sell.State().unit, gold(300))
+    T.eq(ns.Sell.State().canPost, true)
+
+    -- a manual price beats it
+    local ns2 = setup()
+    Atr_GetAuctionBuyout = function() return gold(300) end
+    ns2.Prices.SetManual(BAG, gold(500))
+    ns2.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    putBag(ns2, 3)
+    T.eq(ns2.Sell.State().unit, gold(500))
+
+    -- competition beats both
+    local ns3 = setup()
+    Atr_GetAuctionBuyout = function() return gold(300) end
+    ns3.Prices.SetManual(BAG, gold(500))
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns3, 3)
+    T.eq(ns3.Sell.State().unit, gold(419, 99))
+  end,
+
+  typed_price_can_post_without_check = function(T)
+    local ns = setup()
+    scanTrackedSawMistake(ns)
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().reason, "checking")
+    ns.Sell.SetUnit(gold(300))
+    local s = ns.Sell.State()
+    T.eq(s.canPost, true)
+    T.eq(s.reason, nil)
+    T.eq(ns.Sell.Post(), true)
+    T.eq(Mock.started[1][1], gold(300))
+  end,
+
+  manual_price_can_post_without_check = function(T)
+    local ns = setup()
+    ns.Prices.SetManual(BAG, gold(500))
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    T.ok(ns.Sell.PutItem(0, 1))
+    local s = ns.Sell.State()
+    T.eq(s.status, "Searching...")
+    T.eq(s.unit, gold(500))
+    T.eq(s.canPost, true, "the player set this price himself")
+  end,
+
+  double_post_blocked = function(T)
+    local ns = setup()
+    putBag(ns, 6)
+    ns.Sell.SetUnit(gold(400))
+    ns.Sell.SetStacks(3)
+    T.eq(ns.Sell.Post(), true)
+    local s = ns.Sell.State()
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "posting")
+    T.eq(ns.Sell.Post(), false, "a second click does not post again")
+    T.eq(#Mock.started, 1)
+
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 3)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 1, 3)
+    T.eq(ns.Sell.State().reason, "posting", "still posting")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 1)
+
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 3, 3)
+    T.eq(ns.Sell.State().reason, nil, "the last auction is up: free again")
+    T.eq(ns.Sell.Post(), true)
+    T.eq(#Mock.started, 2)
+
+    -- a different item in the slot ends the lock
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    T.eq(ns.Sell.State().reason, "posting")
+    T.ok(ns.Sell.PutItem(0, 2))
+    T.eq(ns.Sell.State().item.id, OTHER)
+    T.eq(ns.Sell.State().reason, "checking", "not 'posting' any more")
+  end,
+
+  single_stack_post_completes_on_slot_empty = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 1)
+    T.eq(ns.Sell.State().stacks, 1)
+    T.eq(ns.Sell.Post(), true)
+    T.eq(ns.Sell.State().reason, "posting")
+    T.eq(ns.Sell.Post(), false)
+
+    -- no multisell events: the game empties the slot
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = bagAuction("Me", gold(419, 99))
+    Mock.sellSlot = nil
+    Mock.queries = {}
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(ns.Sell.State().status, "Posted 1 auction")
+    T.ok(ns.Scanner.IsBusy(), "a fresh price check of the item started")
+    T.ok(Mock.pump(ns))
+    T.eq(Mock.queries[1][1], BAG_NAME)
+    T.eq(#ns.Listings.Get(BAG), 2)
+    T.eq(ns.Sell.State().status, "Posted 1 auction")
+
+    -- the lock is gone: the item back in the slot is not "posting"
+    Mock.sellSlot = { id = BAG, name = BAG_NAME, count = 1, bag = 0, slot = 1 }
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(ns.Sell.State().item.id, BAG)
+    T.ok(ns.Sell.State().reason ~= "posting")
+
+    -- several stacks: the empty slot alone does not claim success
+    local ns2 = setup()
+    putBag(ns2, 3)
+    ns2.Sell.SetUnit(gold(10))
+    T.eq(ns2.Sell.State().stacks, 3)
+    T.eq(ns2.Sell.Post(), true)
+    Mock.sellSlot = nil
+    ns2.Sell.OnSlotChanged(nil)
+    T.eq(ns2.Sell.State().status, "Posting...")
+  end,
+
+  single_stack_post_completes_when_the_stack_shrinks = function(T)
+    local ns = setup()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 30)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    ns.Sell.SetUnit(500)
+    ns.Sell.SetStack(10)
+    ns.Sell.SetStacks(1)
+    T.eq(ns.Sell.Post(), true)
+
+    ns.Sell.OnSlotChanged(nil)                -- nothing was used up yet
+    T.eq(ns.Sell.State().reason, "posting")
+
+    Mock.bags[0][1].count = 20                -- 10 are gone, the slot keeps the rest
+    Mock.sellSlot.count = 20
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(ns.Sell.State().status, "Posted 1 auction")
+    T.ok(ns.Sell.State().reason ~= "posting")
+  end,
+
+  failure_clears_posting_lock = function(T)
+    local ns = setup()
+    putBag(ns, 3)
+    ns.Sell.SetUnit(gold(400))
+    T.eq(ns.Sell.Post(), true)
+    T.eq(ns.Sell.State().reason, "posting")
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_FAILURE")
+    local s = ns.Sell.State()
+    T.eq(s.status, "Posting failed")
+    T.eq(s.reason, nil)
+    T.eq(s.canPost, true)
+    T.eq(ns.Sell.Post(), true, "the player can try again")
+    T.eq(#Mock.started, 2)
+  end,
+
+  swap_back_drops_stale_queued_check = function(T)
+    local ns = setup()
+    Mock.ah.auctions = {
+      bagAuction("Bob", gold(420)),
+      auction(OTHER, OTHER_NAME, "Cara", 1, gold(100)),
+    }
+    inBag(0, 1, BAG, BAG_NAME, 1)
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    T.ok(ns.Sell.PutItem(0, 1))               -- the bag check runs
+    ns.Scanner.Tick(0.1)
+    T.ok(ns.Sell.PutItem(0, 2))               -- the other bag waits for it
+    T.eq(ns.Sell.State().status, "Waiting for the current scan...")
+    T.ok(ns.Sell.PutItem(0, 1))               -- and the player changes his mind
+    T.eq(ns.Sell.State().item.id, BAG)
+    T.eq(ns.Sell.State().status, "Searching...", "the bag's check is the one in flight")
+
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1, "the other bag was never searched")
+    T.eq(Mock.queries[1][1], BAG_NAME)
+    local s = ns.Sell.State()
+    T.eq(s.status, "", "no 'Searching...' left behind")
+    T.eq(s.unit, gold(419, 99))
+    T.eq(s.listings[1].seller, "Bob")
+    T.eq(s.canPost, true)
+  end,
+
+  owned_limited_by_sell_slot_total = function(T)
+    local ns = setup()
+    -- one of the four is equipped: the bags count it, the client will not post it
+    Mock.sellTotal[BAG] = 3
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    inBag(0, 2, BAG, BAG_NAME, 1)
+    T.eq(GetItemCount(BAG), 4)
+    T.ok(ns.Sell.PutItem(0, 1))
+    local s = ns.Sell.State()
+    T.eq(s.item.owned, 3)
+    T.eq(s.stack, 1)
+    T.eq(s.stacks, 3)
+    ns.Sell.SetUnit(gold(10))
+    T.eq(ns.Sell.State().canPost, true)
+    ns.Sell.SetStacks(4)
+    T.eq(ns.Sell.State().reason, "too-many")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    -- stackables too: 45 in the bags, 40 for sale
+    local ns2 = setup()
+    Mock.sellTotal[CLOTH] = 40
+    inBag(0, 1, CLOTH, CLOTH_NAME, 45)
+    T.ok(ns2.Sell.PutItem(0, 1))
+    T.eq(ns2.Sell.State().item.owned, 40)
+    T.eq(ns2.Sell.State().stack, 20)
+    T.eq(ns2.Sell.State().stacks, 2)
+    ns2.Sell.SetUnit(500)
+    ns2.Sell.SetStacks(3)
+    T.eq(ns2.Sell.State().reason, "too-many")
+
+    -- the limit follows the game's number as it changes
+    Mock.sellTotal[CLOTH] = 10
+    ns2.Sell.SetStacks(1)
+    T.eq(ns2.Sell.State().reason, "too-many", "20 > 10")
+  end,
+
+  slot_holding_other_item_blocks_post = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, 20 * 300) }
+    inBag(0, 1, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    T.eq(ns.Sell.State().unit, 200, "3s each: the whole silver below")
+    T.eq(ns.Sell.State().canPost, true)
+
+    -- the game's slot now holds the other bag and we have not heard about it
+    Mock.sellSlot = { id = OTHER, name = OTHER_NAME, count = 1, bag = 0, slot = 2 }
+    local s = ns.Sell.State()
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "slot-changed")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0, "the cloth price never goes on the bag")
+
+    -- when the event arrives the other bag is priced on its own
+    ns.Sell.OnSlotChanged(nil)
+    s = ns.Sell.State()
+    T.eq(s.item.id, OTHER)
+    T.ok(s.unit ~= 200)
+    T.ok(s.reason ~= "slot-changed")
+  end,
+
+  price_check_uses_item_name_from_id = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    -- the slot names the suffix; the search uses the item's own name
+    inBag(0, 1, BAG, "Frostweave Bag of the Eagle", 1)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    T.eq(Mock.queries[1][1], BAG_NAME)
+    local s = ns.Sell.State()
+    T.eq(s.item.name, "Frostweave Bag of the Eagle", "the slot's name is what is shown")
+    T.eq(s.unit, gold(419, 99))
+
+    -- GetItemInfo does not know the item: the slot's name is all there is
+    local ns2 = setup()
+    Mock.items[BAG] = nil
+    inBag(0, 1, BAG, "Frostweave Bag of the Eagle", 1)
+    T.ok(ns2.Sell.PutItem(0, 1))
+    ns2.Scanner.Tick(0.1)
+    T.eq(Mock.queries[1][1], "Frostweave Bag of the Eagle")
   end,
 
   start_auction_only_in_post = function(T)

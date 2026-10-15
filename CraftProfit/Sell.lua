@@ -31,8 +31,16 @@ local stack, stacks = 1, 1  -- items per auction, number of auctions
 local duration = DEFAULT_DURATION
 local priceEdited = false   -- the player chose the price: price checks leave it alone
 local listings              -- rows of the last price check of the current item
+local checked = false       -- a price check of the current item has returned its listings
+local checkFailed = false   -- the current item's check ended without an answer
 local status = ""
 local lastName              -- the sell slot's name for Sell.lastId
+
+-- A post is under way from the Post click until the last auction is up (or it
+-- failed, or the slot moved on): one post at a time.
+local posting = false
+local postStacks            -- how many auctions that post makes
+local postOwned             -- how many items we could post when it started
 
 -- Our price check, as the scanner sees it. Only one runs at a time, and the
 -- scanner has no cancel, so a check for an item the player has since replaced
@@ -48,11 +56,40 @@ local function changed()
   ns.Fire("SELL_CHANGED")
 end
 
--- Price each when nobody else sets it: under the cheapest other seller, equal
--- to our own, else the last known price (nil when there is none).
+-- What an item is worth when nobody sells it: the player's own price, else
+-- Auctionator's. Not the stored AH price: a scan that saw a mistake listing
+-- may have stored that, and it outlives the listings we just read.
+local function standbyPrice(id)
+  local price, source = ns.Prices.ResolveSell(id)
+  if source == "manual" then return price end
+  return ns.Prices.Auctionator(id)
+end
+
+-- Price each when nobody else sets it. From a price check's rows: under the
+-- cheapest other seller, equal to our own, else the standby price (nil when
+-- there is none). Before the check has answered: the last known price, which
+-- the page may show but Post does not accept (see State).
 local function defaultPrice(id, rows)
-  local price = ns.Listings.UndercutPrice(rows or {}, (ns.Prices.ResolveSell(id)))
+  if not rows then return (ns.Prices.ResolveSell(id)) end
+  local price = ns.Listings.UndercutPrice(rows, standbyPrice(id))
   return price
+end
+
+-- What to search the AH for: the item's own name, else what the slot calls it.
+local function searchName(id, slotName)
+  return (GetItemInfo(id)) or slotName
+end
+
+-- Items of `id` the client will let us post: the bags' count, but never more
+-- than the sell slot's own total (it leaves out equipped and bound copies).
+local function ownedCount(id, slotTotal)
+  local inBags = GetItemCount(id)
+  if slotTotal and slotTotal < inBags then return slotTotal end
+  return inBags
+end
+
+local function postedText(n)
+  return "Posted " .. n .. (n == 1 and " auction" or " auctions")
 end
 
 local function startCheck(id, name, quiet)
@@ -63,8 +100,12 @@ local function startCheck(id, name, quiet)
   elseif err == "busy" then
     wanted = { id = id, name = name, quiet = quiet }
     if not quiet then status = WAITING end
-  elseif not quiet then
-    status = "Could not search the Auction House (" .. tostring(err) .. ")."
+  else
+    -- Nothing will answer this.
+    if not checked then checkFailed = true end
+    if not quiet then
+      status = "Could not search the Auction House (" .. tostring(err) .. ")."
+    end
   end
 end
 
@@ -75,6 +116,9 @@ end
 local function requestCheck(id, name, quiet, force)
   if running and running.id == id and not force then
     running.quiet = running.quiet and quiet
+    -- The player is back on the item that is being checked: a check queued for
+    -- the item he had in between is not wanted any more.
+    if wanted and not wanted.quiet then wanted = nil end
     if not quiet then status = SEARCHING end
     return
   end
@@ -89,24 +133,44 @@ end
 -- The scanner went idle. SCAN_FINISHED carries no success flag: when our check
 -- ended without rows for its item, the AH did not answer.
 local function onScanFinished()
-  local before = status
+  local beforeStatus, beforeFailed = status, checkFailed
   local finished = running
   running = nil
-  if finished and not finished.got and not finished.quiet and item and item.id == finished.id then
-    status = NO_ANSWER
+  if finished and not finished.got and item and item.id == finished.id then
+    -- Never answered: without a typed price the item can't be posted. A quiet
+    -- check (the game's own slot update) fails the same way, but the status
+    -- line stays as it was.
+    if not checked then checkFailed = true end
+    if not finished.quiet then status = NO_ANSWER end
   end
   if wanted then
     local following = wanted
     wanted = nil
-    startCheck(following.id, following.name, following.quiet)
+    -- Only the item still in the slot is worth a search the player waits for.
+    if following.quiet or (item and item.id == following.id) then
+      startCheck(following.id, following.name, following.quiet)
+    end
+  end
+  -- Nothing is searching, so nothing may say it is.
+  if not running and not wanted and (status == SEARCHING or status == WAITING) then
+    status = ""
   end
   -- Every scan of the player's ends here; most have nothing to do with us.
-  if status ~= before then changed() end
+  if status ~= beforeStatus or checkFailed ~= beforeFailed then changed() end
+end
+
+-- Look the last item up again so the listings show what was just posted. The
+-- slot may be empty by now, hence the remembered id.
+local function checkAfterPosting()
+  local id = Sell.lastId
+  local name = id and searchName(id, lastName)
+  if name then requestCheck(id, name, true, true) end
 end
 
 -- Back to "no item". A posting message stays; a pending search goes.
 local function resetItem()
   item, unit, listings, priceEdited = nil, nil, nil, false
+  checked, checkFailed = false, false
   stack, stacks = 1, 1
   if wanted and not wanted.quiet then wanted = nil end
   if TRANSIENT[status] then status = "" end
@@ -146,28 +210,53 @@ end
 -- nil when NEW_AUCTION_UPDATE says so (the slot was emptied after posting, or
 -- its count changed), then the item is the one already shown.
 function Sell.OnSlotChanged(id)
-  local slotName, slotTexture = GetAuctionSellItemInfo()
+  local slotName, slotTexture, _, _, _, _, _, _, slotTotal = GetAuctionSellItemInfo()
+  local fromEvent = id == nil
+
   if not slotName then
+    -- With no multisell progress to go by, a single auction is done when the
+    -- slot empties.
+    local singleStackDone = fromEvent and posting and postStacks == 1
+    posting = false
     resetItem()
-    if id then status = CANT_AUCTION end
+    if id then
+      status = CANT_AUCTION
+    elseif singleStackDone then
+      status = postedText(1)
+      checkAfterPosting()
+    end
     changed()
     return
   end
 
-  local fromEvent = id == nil
   id = id or idForSlotName(slotName)
   if not id then
     -- Something we know nothing about sits in the slot.
+    posting = false
     resetItem()
     changed()
     return
   end
 
-  local maxStack, _, infoTexture = select(8, GetItemInfo(id))
-  local owned = GetItemCount(id)
-  if not (item and item.id == id) then listings = nil end
+  local sameItem = item ~= nil and item.id == id
+  local owned = ownedCount(id, slotTotal)
+
+  -- Another item, or the player's own drop, ends a post we were waiting for.
+  -- The same item with fewer of it than when a single auction was posted means
+  -- that auction is made (the slot keeps the rest).
+  local singleStackDone = false
+  if posting then
+    if not (sameItem and fromEvent) then
+      posting = false
+    elseif postStacks == 1 and owned < postOwned then
+      posting, singleStackDone = false, true
+    end
+  end
+
+  local maxStack = select(8, GetItemInfo(id))
+  if not sameItem then listings, checked, checkFailed = nil, false, false end
   item = {
-    id = id, name = slotName, texture = slotTexture or infoTexture,
+    id = id, name = slotName, texture = slotTexture or select(10, GetItemInfo(id)),
     maxStack = maxStack or 1, owned = owned,
   }
   stack, stacks = defaultCounts(item.maxStack, owned)
@@ -177,7 +266,12 @@ function Sell.OnSlotChanged(id)
   -- The player's own drop starts a fresh status; an update from the game
   -- must not wipe what the page last said (e.g. a posting result).
   if not fromEvent then status = "" end
-  requestCheck(id, slotName, fromEvent)
+  if singleStackDone then
+    status = postedText(1)
+    checkAfterPosting()
+  else
+    requestCheck(id, searchName(id, slotName), fromEvent)
+  end
   changed()
 end
 
@@ -240,7 +334,8 @@ end
 function Sell.OnListings(id)
   if not item or item.id ~= id then return end
   local rows = ns.Listings.Get(id)
-  if rows then listings = rows end
+  if not rows then return end
+  listings, checked, checkFailed = rows, true, false
   if not priceEdited then unit = defaultPrice(id, listings) end
   if TRANSIENT[status] then status = "" end
   changed()
@@ -284,13 +379,24 @@ function Sell.PickRow(row)
   changed()
 end
 
--- Everything the page shows. `reason` says why canPost is false: "no-item",
--- "no-price", "too-many" (more than the bags hold) or "no-gold" (deposit).
+-- Everything the page shows. `reason` says why canPost is false:
+--   "no-item"      nothing in the slot
+--   "slot-changed" the slot holds something other than our item (we have not
+--                  heard of the change yet)
+--   "posting"      a post is under way
+--   "checking"     the price check has not answered yet
+--   "no-check"     it ended without an answer; type a price to post anyway
+--   "no-price"     no price
+--   "too-many"     more than the client lets us post
+--   "no-gold"      cannot pay the deposit
+-- A typed or picked price, or one the player set in Craft Profit, needs no
+-- price check.
 function Sell.State()
   -- The game's slot is the truth: if it was emptied without us hearing, there
   -- is nothing to post.
+  local slotName, _, _, _, _, _, _, _, slotTotal = GetAuctionSellItemInfo()
   local current = item
-  if current and GetAuctionSellItemInfo() == nil then current = nil end
+  if current and not slotName then current = nil end
 
   local s = {
     item = current, unit = unit, stack = stack, stacks = stacks, duration = duration,
@@ -301,7 +407,7 @@ function Sell.State()
     return s
   end
 
-  current.owned = GetItemCount(current.id)
+  current.owned = ownedCount(current.id, slotTotal)
   s.flip = ns.Flip.Info(current.id)
   s.deposit = CalculateAuctionDeposit(duration, stack * stacks)
 
@@ -322,7 +428,15 @@ function Sell.State()
     end
   end
 
-  if not unit or unit < 1 then
+  local _, source = ns.Prices.ResolveSell(current.id)
+  local awaitingCheck = not (priceEdited or checked or source == "manual")
+  if slotName ~= current.name then
+    s.reason = "slot-changed"
+  elseif posting then
+    s.reason = "posting"
+  elseif awaitingCheck then
+    s.reason = checkFailed and "no-check" or "checking"
+  elseif not unit or unit < 1 then
     s.reason = "no-price"
   elseif stack * stacks > current.owned then
     s.reason = "too-many"
@@ -339,6 +453,7 @@ function Sell.Post()
   local s = Sell.State()
   if not s.canPost then return false end
   local price = s.unit * s.stack
+  posting, postStacks, postOwned = true, s.stacks, s.item.owned
   status = "Posting..."
   StartAuction(price, price, s.duration, s.stack, s.stacks)
   changed()
@@ -352,16 +467,14 @@ function Sell.OnMultisell(event, a, b)
     status = "Posting 0/" .. tostring(a or 0)
   elseif event == "AUCTION_MULTISELL_UPDATE" then
     if a and b and b > 0 and a >= b then
-      status = "Posted " .. b .. (b == 1 and " auction" or " auctions")
-      -- Look the item up again so the listings show what we just posted; the
-      -- slot may be empty by now, hence the remembered id.
-      local id = Sell.lastId
-      local name = item and item.name or lastName
-      if id and name then requestCheck(id, name, true, true) end
+      posting = false
+      status = postedText(b)
+      checkAfterPosting()
     else
       status = "Posting " .. tostring(a) .. "/" .. tostring(b)
     end
   elseif event == "AUCTION_MULTISELL_FAILURE" then
+    posting = false
     status = "Posting failed"
   else
     return

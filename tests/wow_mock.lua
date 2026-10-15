@@ -157,6 +157,10 @@ function Mock.reset()
   Mock.cleared = 0
   Mock.started = {}
   Mock.auctionable = {}
+  -- totalCount (9th return of GetAuctionSellItemInfo) is what the client lets
+  -- you post. By default every copy in the bags; Mock.sellTotal[id] = n
+  -- lowers it (an equipped or bound copy is in the bag count but not in it).
+  Mock.sellTotal = {}
   GetContainerNumSlots = function(bag)
     local n = 0
     for slot in pairs(Mock.bags[bag] or {}) do
@@ -202,7 +206,8 @@ function Mock.reset()
   GetAuctionSellItemInfo = function()
     local slot = Mock.sellSlot
     if not slot then return nil end
-    return slot.name, "tex", slot.count, 1, true, 0, 0, slot.count, GetItemCount(slot.id)
+    return slot.name, "tex", slot.count, 1, true, 0, 0, slot.count,
+      Mock.sellTotal[slot.id] or GetItemCount(slot.id)
   end
   CalculateAuctionDeposit = function(runTime, count) return count * 100 * runTime end
   StartAuction = function(...)
