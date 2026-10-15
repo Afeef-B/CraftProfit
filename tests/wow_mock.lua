@@ -165,6 +165,12 @@ function FrameMethods.AddDoubleLine(self, left, right) table.insert(Mock.tooltip
 function FrameMethods.ClearLines() Mock.tooltip = {} end
 
 function Mock.installUI()
+  -- Named frames from earlier tests must not leak into this one.
+  local stale = {}
+  for key in pairs(_G) do
+    if type(key) == "string" and key:match("^CraftProfit") then stale[#stale + 1] = key end
+  end
+  for _, key in ipairs(stale) do _G[key] = nil end
   Mock.tooltip = {}
   Mock.popup = nil
   CreateFrame = function(kind, name, parent, template)

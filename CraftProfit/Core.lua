@@ -8,6 +8,7 @@ ns.Core = {}
 local Core = ns.Core
 
 local RUNTIME_EVENTS = {
+  "ADDON_LOADED",
   "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE",
   "MERCHANT_SHOW", "MERCHANT_UPDATE",
   "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "AUCTION_ITEM_LIST_UPDATE",
@@ -39,12 +40,16 @@ function Core.OnUpdate(_, elapsed)
   end
 end
 
-function Core.OnEvent(event)
+function Core.OnEvent(event, arg1)
   if event == "PLAYER_LOGIN" then
     Core.InitDB()
     for _, e in ipairs(RUNTIME_EVENTS) do frame:RegisterEvent(e) end
     hooksecurefunc("QueryAuctionItems", ns.Scanner.OnQuery)
     frame:SetScript("OnUpdate", Core.OnUpdate)
+    -- Another addon may already have loaded the (load-on-demand) AH UI.
+    ns.UI.EnsurePanel()
+  elseif event == "ADDON_LOADED" then
+    if arg1 == "Blizzard_AuctionUI" then ns.UI.EnsurePanel() end
   elseif event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_UPDATE" then
     ns.Recipes.ReadTradeSkill()
     ns.UI.EnsureTrackButton()
@@ -59,7 +64,7 @@ function Core.OnEvent(event)
 end
 
 frame:RegisterEvent("PLAYER_LOGIN")
-frame:SetScript("OnEvent", function(_, event) Core.OnEvent(event) end)
+frame:SetScript("OnEvent", function(_, event, arg1) Core.OnEvent(event, arg1) end)
 
 -- Item id for a known recipe/material name (any case), else the item cache.
 local function lookupName(name)

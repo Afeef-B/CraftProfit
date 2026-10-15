@@ -145,4 +145,23 @@ return {
     Core.OnUpdate(nil, 0.1)
     T.eq(#Mock.queries, 1)
   end,
+
+  panel_built_when_auction_ui_loads = function(T)
+    Mock.reset()
+    Mock.installUI()
+    local auctionFrame = AuctionFrame
+    AuctionFrame = nil                      -- Blizzard_AuctionUI not loaded yet
+    local ns = Mock.load(ALL)
+    ns.Core.OnEvent("PLAYER_LOGIN")
+    ns.Core.OnEvent("AUCTION_HOUSE_SHOW")   -- reaches us before the AH frame exists
+    T.eq(CraftProfitPanel, nil)
+    AuctionFrame = auctionFrame
+    ns.Core.OnEvent("ADDON_LOADED", "Blizzard_AuctionUI")
+    T.ok(CraftProfitPanel, "panel built once the AH UI loads")
+  end,
+
+  panel_built_at_login_if_auction_ui_already_loaded = function(T)
+    load()
+    T.ok(CraftProfitPanel, "AH UI was loaded before us (e.g. by Auctionator)")
+  end,
 }
