@@ -1025,6 +1025,204 @@ return {
     T.eq(Mock.queries[1][1], "Frostweave Bag of the Eagle")
   end,
 
+  manual_price_set_after_place_updates_price = function(T)
+    local ns = setup()
+    -- the item goes in showing a stale stored 50g while its check runs
+    ns.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 3, false)
+    local s = ns.Sell.State()
+    T.eq(s.unit, gold(50))
+    T.eq(s.reason, "checking")
+
+    -- /cp price <item> 400g
+    ns.Prices.SetManual(BAG, gold(400))
+    ns.Fire("PRICES_CHANGED")
+    s = ns.Sell.State()
+    T.eq(s.unit, gold(400), "the page shows the price the player just set")
+    T.eq(s.canPost, true)
+    T.eq(s.reason, nil)
+    T.eq(ns.Sell.Post(), true)
+    T.eq(Mock.started[1][1], gold(400), "and that is what is posted")
+
+    -- the same after a check that got no answer
+    local ns2 = setup()
+    ns2.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    putBag(ns2, 3, false)
+    ns2.Scanner.Stop("AH closed")
+    T.eq(ns2.Sell.State().reason, "no-check")
+    ns2.Prices.SetManual(BAG, gold(400))
+    ns2.Fire("PRICES_CHANGED")
+    s = ns2.Sell.State()
+    T.eq(s.unit, gold(400))
+    T.eq(s.canPost, true)
+
+    -- removing the price again takes the exemption away with it
+    ns2.Prices.SetManual(BAG, nil)
+    ns2.Fire("PRICES_CHANGED")
+    s = ns2.Sell.State()
+    T.eq(s.unit, gold(50), "back to the stored price, which is shown only")
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "no-check")
+  end,
+
+  manual_price_change_keeps_what_the_player_chose_and_the_competition = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 3)
+    T.eq(ns.Sell.State().unit, gold(419, 99))
+    -- the listings decide when someone competes: a manual price is only the fallback
+    ns.Prices.SetManual(BAG, gold(400))
+    ns.Fire("PRICES_CHANGED")
+    T.eq(ns.Sell.State().unit, gold(419, 99))
+
+    -- and a price the player typed is never replaced
+    ns.Sell.SetUnit(gold(300))
+    ns.Prices.SetManual(BAG, gold(350))
+    ns.Fire("PRICES_CHANGED")
+    T.eq(ns.Sell.State().unit, gold(300))
+
+    -- nothing shown: nothing to update
+    local ns2 = setup()
+    ns2.Prices.SetManual(BAG, gold(350))
+    ns2.Fire("PRICES_CHANGED")
+    T.eq(ns2.Sell.State().item, nil)
+    T.eq(ns2.Sell.State().unit, nil)
+
+    -- an unchanged price is not news
+    local ns3 = setup()
+    ns3.Prices.SetManual(BAG, gold(350))
+    putBag(ns3, 3)
+    local count = events(ns3)
+    ns3.Fire("PRICES_CHANGED")
+    T.eq(count.n, 0, "no redraw when the price stayed the same")
+  end,
+
+  stale_unit_not_exempt_by_manual_price = function(T)
+    local ns = setup()
+    ns.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 3, false)
+    -- a manual price now exists, but the price on the page is still the stale one
+    ns.Prices.SetManual(BAG, gold(400))
+    local s = ns.Sell.State()
+    T.eq(s.unit, gold(50))
+    T.eq(s.canPost, false, "the exemption is for a price the page shows, not any manual price")
+    T.eq(s.reason, "checking")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    -- same once the check has failed
+    ns.Scanner.Stop("AH closed")
+    s = ns.Sell.State()
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "no-check")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    -- put in with the manual price already set: the page shows it, no check needed
+    local ns2 = setup()
+    ns2.Prices.SetAH(BAG, gold(50), 1, Mock.now - 3600)
+    ns2.Prices.SetManual(BAG, gold(400))
+    putBag(ns2, 3, false)
+    T.eq(ns2.Sell.State().unit, gold(400))
+    T.eq(ns2.Sell.State().canPost, true)
+  end,
+
+  swap_back_with_game_updates_drops_stale_check = function(T)
+    local ns = setup()
+    Mock.ah.auctions = {
+      bagAuction("Bob", gold(420)),
+      auction(OTHER, OTHER_NAME, "Cara", 1, gold(100)),
+    }
+    inBag(0, 1, BAG, BAG_NAME, 1)
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    -- the game sends NEW_AUCTION_UPDATE after every drop
+    T.ok(ns.Sell.PutItem(0, 1))
+    ns.Sell.OnSlotChanged(nil)
+    ns.Scanner.Tick(0.1)                      -- the bag's check is on its way
+    T.ok(ns.Sell.PutItem(0, 2))
+    ns.Sell.OnSlotChanged(nil)
+    T.ok(ns.Sell.PutItem(0, 1))
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(ns.Sell.State().item.id, BAG)
+
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1, "the other bag was never searched")
+    T.eq(Mock.queries[1][1], BAG_NAME)
+    local s = ns.Sell.State()
+    T.eq(s.status, "")
+    T.eq(s.unit, gold(419, 99))
+    T.eq(s.canPost, true)
+  end,
+
+  post_check_survives_game_update_for_same_item = function(T)
+    local ns = setup()
+    putBag(ns, 2, false)                      -- the first check is still running
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 2, 2)   -- queues the check after the post
+    ns.Sell.OnSlotChanged(nil)                -- the game's own update for the same item
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 2, "the check after the post still ran")
+  end,
+
+  post_waits_for_fresh_check_after_posting = function(T)
+    -- several auctions: the last multisell update
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 4)
+    ns.Sell.SetStacks(2)
+    T.eq(ns.Sell.State().unit, gold(419, 99))
+    T.eq(ns.Sell.Post(), true)
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = bagAuction("Me", gold(419, 99))
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 2)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 2, 2)
+    local s = ns.Sell.State()
+    T.eq(s.status, "Posted 2 auctions")
+    T.eq(s.canPost, false, "the rows on the page are from before the post")
+    T.eq(s.reason, "checking")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 1)
+
+    T.ok(Mock.pump(ns))
+    s = ns.Sell.State()
+    T.eq(s.reason, nil)
+    T.eq(s.canPost, true)
+    T.eq(s.unit, gold(419, 99), "now matching our own auction, not undercutting it blind")
+    T.eq(s.status, "Posted 2 auctions")
+
+    -- a single stack that leaves the rest of a stack in the slot
+    local ns2 = setup()
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, 20 * 300) }
+    inBag(0, 1, CLOTH, CLOTH_NAME, 30)
+    T.ok(ns2.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns2))
+    ns2.Sell.SetUnit(250)
+    ns2.Sell.SetStack(10)
+    ns2.Sell.SetStacks(1)
+    T.eq(ns2.Sell.Post(), true)
+    Mock.bags[0][1].count = 20                -- 10 are gone, the slot keeps the rest
+    Mock.sellSlot.count = 20
+    ns2.Sell.OnSlotChanged(nil)
+    s = ns2.Sell.State()
+    T.eq(s.status, "Posted 1 auction")
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "checking")
+    T.ok(Mock.pump(ns2))
+    T.eq(ns2.Sell.State().reason, nil)
+
+    -- the check after the post gets no answer: a typed price is needed
+    local ns3 = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns3, 4)
+    ns3.Sell.SetStacks(2)
+    T.eq(ns3.Sell.Post(), true)
+    ns3.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 2, 2)
+    ns3.Scanner.Stop("AH closed")
+    T.eq(ns3.Sell.State().reason, "no-check")
+    ns3.Sell.SetUnit(gold(10))
+    T.eq(ns3.Sell.State().canPost, true)
+  end,
+
   start_auction_only_in_post = function(T)
     local f = assert(io.open(Mock.root .. "Sell.lua", "r"))
     local src = f:read("*a")

@@ -117,8 +117,10 @@ local function requestCheck(id, name, quiet, force)
   if running and running.id == id and not force then
     running.quiet = running.quiet and quiet
     -- The player is back on the item that is being checked: a check queued for
-    -- the item he had in between is not wanted any more.
-    if wanted and not wanted.quiet then wanted = nil end
+    -- the item he had in between is not wanted any more, quiet or not (the
+    -- game's own update after that drop queued it quietly). One for this item
+    -- stays: it is the check after a post.
+    if wanted and wanted.id ~= id then wanted = nil end
     if not quiet then status = SEARCHING end
     return
   end
@@ -164,7 +166,11 @@ end
 local function checkAfterPosting()
   local id = Sell.lastId
   local name = id and searchName(id, lastName)
-  if name then requestCheck(id, name, true, true) end
+  if not name then return end
+  -- The rows held for the item still in the slot are from before the post:
+  -- Post waits for the new ones (it would undercut the auction just posted).
+  if item and item.id == id then checked, checkFailed = false, false end
+  requestCheck(id, name, true, true)
 end
 
 -- Back to "no item". A posting message stays; a pending search goes.
@@ -428,8 +434,10 @@ function Sell.State()
     end
   end
 
-  local _, source = ns.Prices.ResolveSell(current.id)
-  local awaitingCheck = not (priceEdited or checked or source == "manual")
+  -- The player's own price needs no check, but only when that is the price
+  -- on the page: one set after the item went in is not (yet) the unit shown.
+  local manual, source = ns.Prices.ResolveSell(current.id)
+  local awaitingCheck = not (priceEdited or checked or (source == "manual" and unit == manual))
   if slotName ~= current.name then
     s.reason = "slot-changed"
   elseif posting then
@@ -482,6 +490,19 @@ function Sell.OnMultisell(event, a, b)
   changed()
 end
 
+-- A price changed (/cp price, a scan): an item shown with the price we chose
+-- for it gets the new default, e.g. the manual price just set. The default
+-- still comes from the listings when someone competes.
+local function onPricesChanged()
+  if not item or priceEdited then return end
+  local price = defaultPrice(item.id, listings)
+  if price ~= unit then
+    unit = price
+    changed()
+  end
+end
+
+ns.On("PRICES_CHANGED", onPricesChanged)
 ns.On("LISTINGS_UPDATED", function(id)
   if running and running.id == id then running.got = true end
   Sell.OnListings(id)
