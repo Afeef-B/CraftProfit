@@ -356,7 +356,7 @@ function UI.EnsureTrackButton()
   trackButton:SetScript("OnClick", function(self)
     local id = ns.Recipes.SelectedProductID()
     if not id then return end
-    if not ns.Recipes.Get(id) then ns.Recipes.ReadTradeSkill() end
+    ns.Recipes.ReadSelected()
     ns.Recipes.SetTracked(id, self:GetChecked() and true or false)
   end)
   trackButton:SetScript("OnEnter", function(self)
@@ -367,7 +367,10 @@ function UI.EnsureTrackButton()
   end)
   trackButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-  hooksecurefunc("TradeSkillFrame_SetSelection", UI.UpdateTrackButton)
+  hooksecurefunc("TradeSkillFrame_SetSelection", function()
+    ns.Recipes.ReadSelected()
+    UI.UpdateTrackButton()
+  end)
   UI.UpdateTrackButton()
 end
 

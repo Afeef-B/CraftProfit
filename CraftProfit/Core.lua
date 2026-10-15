@@ -9,7 +9,7 @@ local Core = ns.Core
 
 local RUNTIME_EVENTS = {
   "ADDON_LOADED",
-  "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE",
+  "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE", "TRADE_SKILL_CLOSE",
   "MERCHANT_SHOW", "MERCHANT_UPDATE",
   "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "AUCTION_ITEM_LIST_UPDATE",
 }
@@ -33,6 +33,7 @@ end
 
 function Core.OnUpdate(_, elapsed)
   ns.Scanner.Tick(elapsed)
+  ns.Recipes.Tick(elapsed)
   sinceButtons = sinceButtons + elapsed
   if sinceButtons >= BUTTON_REFRESH then
     sinceButtons = 0
@@ -50,10 +51,18 @@ function Core.OnEvent(event, arg1)
     ns.UI.EnsurePanel()
   elseif event == "ADDON_LOADED" then
     if arg1 == "Blizzard_AuctionUI" then ns.UI.EnsurePanel() end
-  elseif event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_UPDATE" then
-    ns.Recipes.ReadTradeSkill()
+  elseif event == "TRADE_SKILL_SHOW" then
     ns.UI.EnsureTrackButton()
+    ns.Recipes.ReadSelected()
+    ns.Recipes.StartBackgroundScan()
     ns.UI.UpdateTrackButton()
+  elseif event == "TRADE_SKILL_UPDATE" then
+    -- Fires often (every craft, filter change); keep it cheap. The selected
+    -- recipe is re-read by the TradeSkillFrame_SetSelection hook.
+    ns.UI.EnsureTrackButton()
+    ns.Recipes.NoteUpdate()
+  elseif event == "TRADE_SKILL_CLOSE" then
+    ns.Recipes.StopBackgroundScan()
   elseif event == "MERCHANT_SHOW" or event == "MERCHANT_UPDATE" then
     ns.Prices.RecordMerchant()
   elseif event == "AUCTION_HOUSE_SHOW" then
@@ -150,7 +159,7 @@ function commands.track()
     Util.Print("Open your profession window and select a recipe first.")
     return
   end
-  if not ns.Recipes.Get(id) then ns.Recipes.ReadTradeSkill() end
+  ns.Recipes.ReadSelected()
   local on = not ns.Recipes.IsTracked(id)
   ns.Recipes.SetTracked(id, on)
   Util.Print((on and "Now tracking " or "Stopped tracking ") .. itemName(id) .. ".")

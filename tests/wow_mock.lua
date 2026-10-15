@@ -116,7 +116,9 @@ function Mock.reset()
     return Mock.Link(a.id, a.name)
   end
 
+  Mock.reagentLinkCalls = 0
   GetTradeSkillReagentItemLink = function(i, j)
+    Mock.reagentLinkCalls = Mock.reagentLinkCalls + 1
     local r = Mock.trade.rows[i].reagents[j]
     if r.uncached then return nil end
     return Mock.Link(r.id, r.name)

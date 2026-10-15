@@ -17,7 +17,11 @@ profit for each craft you track in a panel beside the Auction House.
 ## Use
 
 1. **Pick what to track.** Open Tailoring, click a recipe, and tick
-   **Track** at the top right of the recipe details.
+   **Track** at the top right of the recipe details. The recipe you click
+   is learned right away. The rest of your recipes are learned quietly in
+   the background over the next 10–20 seconds, one per frame, which is how
+   the addon knows you can weave your own bolts. This happens once per
+   session, and again only after you learn a new recipe.
 2. **Open the Auction House.** The CraftProfit panel appears on the right.
 3. Press **Scan tracked**. The addon searches the AH for every tracked
    item and all of its materials, one search at a time (about 10–30 s).

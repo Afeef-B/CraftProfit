@@ -73,8 +73,15 @@ A price record with `p == nil` and `n == 0` means "scanned, no listings".
 
 ## Recipe learning (Recipes.lua)
 
-- On `TRADE_SKILL_SHOW` / `TRADE_SKILL_UPDATE`, unless `IsTradeSkillLinked()`:
-  iterate `1..GetNumTradeSkills()`, skip `skillType == "header"`.
+- Event handlers never read every row: a full read is slow on the 3.3.5
+  client and `TRADE_SKILL_UPDATE` fires repeatedly, which froze the game
+  (fixed in 1.0.1). Instead:
+  - the selected row is read on `TRADE_SKILL_SHOW` and from a
+    `TradeSkillFrame_SetSelection` hook;
+  - a background scan starts 1 s after the last `TRADE_SKILL_UPDATE` and
+    reads one row per frame (`OnUpdate`), stops on `TRADE_SKILL_CLOSE`, and
+    runs once per profession per session unless the row count changes.
+- Rows are skipped when `IsTradeSkillLinked()` or `skillType == "header"`.
 - Product id from `GetTradeSkillItemLink(i)` (`item:(%d+)`; non-item links
   such as enchants are skipped). `made` = average of `GetTradeSkillNumMade(i)`.
 - Reagents from `GetTradeSkillNumReagents`, `GetTradeSkillReagentInfo`
