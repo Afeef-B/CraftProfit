@@ -144,7 +144,8 @@ return {
     T.eq(p, 777); T.eq(why, "no-competition")
     p, why = L.UndercutPrice({}, nil)
     T.eq(p, nil); T.eq(why, "no-competition")
-    rows = rowsOf(L, { { g(400), "Me" } }, { Me = true })
+    -- only a bid-only listing of ours: nothing priced to match.
+    rows = L.Normalize({ raw(1, 0, "Me") }, { Me = true }, 0.5)
     p, why = L.UndercutPrice(rows, 777)
     T.eq(p, 777); T.eq(why, "no-competition")
 
@@ -275,10 +276,10 @@ return {
     st, diff, who = L.Status(rows)
     T.eq(st, "cheapest"); T.eq(diff, g(10)); T.eq(who, "Bob")
     T.eq(L.Summarize(rows).flip.seller, "Flipper")
-    -- a lone cheaper seller has nothing to be compared with, so it is competition.
+    -- a lone cheap seller is judged against our listing (see lone_outlier_against_own_listing).
     rows = L.Normalize({ raw(1, g(50), "Flipper"), raw(1, g(420), "Me") }, mine, 0.5)
-    T.eq(rows[1].outlier, false)
-    T.eq((L.Status(rows)), "undercut")
+    T.eq(rows[1].outlier, true)
+    T.eq((L.Status(rows)), "cheapest")
 
     -- bid-only rows of others do not count.
     rows = L.Normalize({ raw(1, 0, "Bob"), raw(1, 5000, "Me") }, mine, 0.5)
@@ -319,6 +320,76 @@ return {
     rows[2].unit = g(380)
     L.MarkUnderYou(rows)
     T.ok(not rows[1].underYou)
+  end,
+
+  lone_outlier_against_own_listing = function(T)
+    local _, L = load()
+    local mine = { Me = true }
+    local rows = L.Normalize({ raw(1, g(50), "Flipper", 1, 4), raw(1, g(420), "Me") }, mine, 0.5)
+    T.eq(rows[1].seller, "Flipper"); T.eq(rows[1].outlier, true)
+    T.eq(rows[2].seller, "Me"); T.eq(rows[2].outlier, false)
+    local s = L.Summarize(rows)
+    T.eq(s.flip, rows[1])
+    T.eq(s.flip.page, 1); T.eq(s.flip.index, 4)
+    T.eq(s.lowestOther, nil)
+    local st, diff, who = L.Status(rows)
+    T.eq(st, "cheapest"); T.eq(diff, nil); T.eq(who, nil)
+    local p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, 4200000); T.eq(why, "match-own")
+
+    -- the reference is the cheapest of our rows dearer than the candidate;
+    -- one of ours below it is ignored.
+    rows = L.Normalize({
+      raw(1, g(10), "Me"), raw(1, g(50), "Flipper"), raw(1, g(420), "Twink"), raw(1, g(900), "Me"),
+    }, { Me = true, Twink = true }, 0.5)
+    T.eq(rows[2].seller, "Flipper"); T.eq(rows[2].outlier, true)
+    -- a bid-only listing of ours is no reference.
+    rows = L.Normalize({ raw(1, g(50), "Flipper"), raw(1, 0, "Me") }, mine, 0.5)
+    T.eq(rows[1].outlier, false)
+    -- our listing cheaper than the candidate is no reference either.
+    rows = L.Normalize({ raw(1, g(10), "Me"), raw(1, g(50), "Flipper") }, mine, 0.5)
+    T.eq(rows[2].seller, "Flipper"); T.eq(rows[2].outlier, false)
+    -- the setting applies: ratio 0.1 makes 50g vs 420g competition again.
+    rows = L.Normalize({ raw(1, g(50), "Flipper"), raw(1, g(420), "Me") }, mine, 0.1)
+    T.eq(rows[1].outlier, false)
+  end,
+
+  lone_cheap_seller_not_outlier = function(T)
+    local _, L = load()
+    local rows = L.Normalize({ raw(1, g(300), "Bob"), raw(1, g(420), "Me") }, { Me = true }, 0.5)
+    T.eq(rows[1].outlier, false)
+    T.eq(L.Summarize(rows).flip, nil)
+    local p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, 2999900); T.eq(why, "undercut")
+    T.eq((L.Status(rows)), "undercut")
+  end,
+
+  two_outliers_before_own_listing = function(T)
+    local _, L = load()
+    local rows = L.Normalize({
+      raw(1, g(50), "Bob"), raw(1, g(60), "Kim"), raw(1, g(420), "Me"),
+    }, { Me = true }, 0.5)
+    T.eq(rows[1].seller, "Bob"); T.eq(rows[1].outlier, true)
+    T.eq(rows[2].seller, "Kim"); T.eq(rows[2].outlier, true)
+    T.eq(rows[3].seller, "Me"); T.eq(rows[3].outlier, false)
+    T.eq(L.Summarize(rows).flip.seller, "Bob")
+    local p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, 4200000); T.eq(why, "match-own")
+  end,
+
+  no_others_only_mine_matches_own = function(T)
+    local _, L = load()
+    local rows = L.Normalize({ raw(1, g(420), "Me") }, { Me = true }, 0.5)
+    T.eq(rows[1].outlier, false)
+    local p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, 4200000); T.eq(why, "match-own")
+    -- an alt's listing counts as ours too.
+    rows = L.Normalize({ raw(1, g(420), "Twink") }, { Me = true, Twink = true }, 0.5)
+    p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, 4200000); T.eq(why, "match-own")
+    -- nobody at all: the fallback.
+    p, why = L.UndercutPrice({}, 123)
+    T.eq(p, 123); T.eq(why, "no-competition")
   end,
 
   store_get_age_and_event = function(T)

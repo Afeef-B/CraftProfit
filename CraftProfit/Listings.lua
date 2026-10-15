@@ -74,15 +74,27 @@ function Listings.Normalize(raw, mineSet, ratio)
     return seq[a] < seq[b]
   end)
 
-  -- Mistake listings: among other sellers' priced rows, the largest i <= 3
-  -- whose unit is under ratio * the next row's unit marks rows 1..i.
+  -- Mistake listings: among other sellers' priced rows o1..on, the largest
+  -- i <= 3 whose unit is under ratio * its reference marks rows 1..i. The
+  -- reference is o(i+1); for the last other seller's row it is the cheapest
+  -- priced listing of ours above it (none: no reference, not a mistake).
   local others = {}
   for i = 1, #rows do
     local row = rows[i]
     if not row.mine and hasBuyout(row) then others[#others + 1] = row end
   end
-  for i = math.min(MAX_OUTLIER_ROWS, #others - 1), 1, -1 do
-    if others[i].unit < ratio * others[i + 1].unit then
+  for i = math.min(MAX_OUTLIER_ROWS, #others), 1, -1 do
+    local reference = others[i + 1] and others[i + 1].unit
+    if not reference then
+      for j = 1, #rows do
+        local row = rows[j]
+        if row.mine and hasBuyout(row) and row.unit > others[i].unit
+            and (not reference or row.unit < reference) then
+          reference = row.unit
+        end
+      end
+    end
+    if reference and others[i].unit < ratio * reference then
       for j = 1, i do others[j].outlier = true end
       break
     end
@@ -125,10 +137,14 @@ local function stepUnder(price)
 end
 
 -- Price each to list at: under the cheapest other seller, equal to our own
--- when that is already the cheapest, `fallback` when nobody else lists.
+-- when that is already the cheapest (or nobody else competes), `fallback`
+-- when there is neither a competitor nor a listing of ours.
 function Listings.UndercutPrice(rows, fallback)
   local s = Listings.Summarize(rows)
-  if not s.lowestOther then return fallback, "no-competition" end
+  if not s.lowestOther then
+    if s.lowestMine then return s.lowestMine, "match-own" end
+    return fallback, "no-competition"
+  end
   if s.lowestMine and s.lowestMine <= s.lowestOther then
     return s.lowestMine, "match-own"
   end
