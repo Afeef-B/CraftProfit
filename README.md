@@ -17,7 +17,9 @@ profit for each craft you track in a panel beside the Auction House.
 ## Use
 
 1. **Pick what to track.** Open Tailoring, click a recipe, and tick
-   **Track** at the top right of the recipe details. The recipe you click
+   **Track** at the top right of the recipe details. The checkbox appears
+   about 1.5 seconds after the window opens: CraftProfit waits until
+   Tailoring has finished loading before touching it. The recipe you click
    is learned right away. The rest of your recipes are learned quietly in
    the background over the next 10–20 seconds, one per frame, which is how
    the addon knows you can weave your own bolts. This happens once per

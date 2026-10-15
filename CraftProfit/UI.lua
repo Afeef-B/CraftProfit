@@ -384,6 +384,9 @@ function UI.HookSelection()
   if selectionHooked then return end
   selectionHooked = true
   hooksecurefunc("TradeSkillFrame_SetSelection", function()
+    -- Blizzard re-selects on every update while the window opens; stay out
+    -- of that burst (see Recipes.WindowOpened).
+    if not ns.Recipes.IsReady() then return end
     if ns.diag then
       ns.diag.hooks = ns.diag.hooks + 1
       if ns.diag.hooks <= 3 then Util.Diag("selection hook #" .. ns.diag.hooks) end

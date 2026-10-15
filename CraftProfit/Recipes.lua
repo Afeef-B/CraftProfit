@@ -89,53 +89,76 @@ function Recipes.ReadSelected(silent)
   return id
 end
 
--- Background scan: once the window has been quiet for SETTLE seconds, read
--- one row per frame. Runs once per profession per session, again only when
--- the number of rows changes (e.g. a newly learned recipe).
-local SETTLE = 1.0
-local ROWS_PER_TICK = 1
-local scan = { state = "idle" }  -- idle | settling | scanning
-local scannedRows = {}           -- profession -> row count of the last full scan
+-- The profession window. While it opens, Blizzard (and skins like ElvUI)
+-- rebuild it over many TRADE_SKILL_UPDATEs; touching it during that burst
+-- hung the 3.3.5 client for one user, while the same work done seconds later
+-- was fine. So nothing happens until the window has been quiet for SETTLE
+-- seconds; then PROFESSION_READY fires.
+local SETTLE = 1.5
+local window = { state = "closed" } -- closed | opening | ready
 
-function Recipes.StartBackgroundScan()
-  scan.state, scan.quiet = "settling", 0
+function Recipes.WindowOpened()
+  window.state, window.quiet = "opening", 0
+end
+
+function Recipes.WindowClosed()
+  window.state = "closed"
+  Recipes.StopBackgroundScan()
 end
 
 function Recipes.NoteUpdate()
-  if scan.state == "settling" then scan.quiet = 0 end
+  if window.state == "opening" then window.quiet = 0 end
+end
+
+function Recipes.IsReady()
+  return window.state == "ready"
+end
+
+-- Background scan: one row per frame. Runs once per profession per session,
+-- again only when the number of rows changes (e.g. a newly learned recipe).
+local ROWS_PER_TICK = 1
+local scan = { state = "idle" }  -- idle | scanning
+local scannedRows = {}           -- profession -> row count of the last full scan
+
+function Recipes.StartBackgroundScan()
+  if IsTradeSkillLinked() then return end
+  local profession, rows = (GetTradeSkillLine()), GetNumTradeSkills()
+  if scannedRows[profession] == rows then return end
+  scan.state, scan.nextRow, scan.changed = "scanning", 1, false
+  scan.profession, scan.rows = profession, rows
+  Util.Diag("background scan started: " .. rows .. " rows")
 end
 
 function Recipes.StopBackgroundScan()
   scan.state = "idle"
 end
 
+local function scanTick()
+  local total = GetNumTradeSkills()
+  local last = math.min(total, scan.nextRow + ROWS_PER_TICK - 1)
+  for i = scan.nextRow, last do
+    local _, changed = readAndStore(i)
+    if changed then scan.changed = true end
+  end
+  scan.nextRow = last + 1
+  if last % 100 == 0 then Util.Diag("background scan row " .. last .. "/" .. total) end
+  if scan.nextRow > total then
+    scannedRows[scan.profession] = scan.rows
+    scan.state = "idle"
+    Util.Diag("background scan finished")
+    if scan.changed then ns.Fire("RECIPES_CHANGED") end
+  end
+end
+
 function Recipes.Tick(elapsed)
-  if scan.state == "settling" then
-    scan.quiet = scan.quiet + elapsed
-    if scan.quiet < SETTLE then return end
-    local profession, rows = (GetTradeSkillLine()), GetNumTradeSkills()
-    if IsTradeSkillLinked() or scannedRows[profession] == rows then
-      scan.state = "idle"
-      return
+  if window.state == "opening" then
+    window.quiet = window.quiet + elapsed
+    if window.quiet >= SETTLE then
+      window.state = "ready"
+      ns.Fire("PROFESSION_READY")
     end
-    scan.state, scan.nextRow, scan.changed = "scanning", 1, false
-    scan.profession, scan.rows = profession, rows
-    Util.Diag("background scan started: " .. rows .. " rows")
   elseif scan.state == "scanning" then
-    local total = GetNumTradeSkills()
-    local last = math.min(total, scan.nextRow + ROWS_PER_TICK - 1)
-    for i = scan.nextRow, last do
-      local _, changed = readAndStore(i)
-      if changed then scan.changed = true end
-    end
-    scan.nextRow = last + 1
-    if last % 100 == 0 then Util.Diag("background scan row " .. last .. "/" .. total) end
-    if scan.nextRow > total then
-      scannedRows[scan.profession] = scan.rows
-      scan.state = "idle"
-      Util.Diag("background scan finished")
-      if scan.changed then ns.Fire("RECIPES_CHANGED") end
-    end
+    scanTick()
   end
 end
 

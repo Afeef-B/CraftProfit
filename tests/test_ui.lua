@@ -85,6 +85,8 @@ return {
 
   track_checkbox_follows_selection = function(T)
     local ns, UI = load()
+    ns.Recipes.WindowOpened()
+    ns.Recipes.Tick(1.6)                      -- window settled
     UI.EnsureTrackButton()
     UI.EnsureTrackButton()
     local check = CraftProfitTrackCheck

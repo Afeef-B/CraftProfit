@@ -21,7 +21,7 @@ end
 -- Open the profession window and let the background scan finish.
 local function openProfession(Core)
   Core.OnEvent("TRADE_SKILL_SHOW")
-  Core.OnUpdate(nil, 1.1)
+  Core.OnUpdate(nil, 1.6)
   for _ = 1, #Mock.trade.rows + 2 do Core.OnUpdate(nil, 0.016) end
 end
 
@@ -173,7 +173,7 @@ return {
     T.ok(CraftProfitPanel, "AH UI was loaded before us (e.g. by Auctionator)")
   end,
 
-  opening_tailoring_reads_only_the_selected_recipe = function(T)
+  nothing_touches_the_window_while_it_opens = function(T)
     local ns, Core = load()
     local rows = {}
     for i = 1, 450 do
@@ -188,9 +188,30 @@ return {
     for _ = 1, 5 do
       Core.OnEvent("TRADE_SKILL_UPDATE")
       TradeSkillFrame_SetSelection(1)       -- Blizzard re-selects on each update
+      Core.OnUpdate(nil, 0.3)
     end
-    T.ok(Mock.reagentLinkCalls <= 20, "event handlers read " .. Mock.reagentLinkCalls .. " reagent links")
-    T.ok(ns.Recipes.Get(50001), "selected recipe learned right away")
+    T.eq(CraftProfitTrackCheck, nil, "no checkbox while opening")
+    T.eq(Mock.reagentLinkCalls, 0, "no recipe reads while opening")
+
+    Core.OnUpdate(nil, 1.3)                 -- quiet for 1.6 s: settled
+    T.ok(CraftProfitTrackCheck, "checkbox added once settled")
+    T.ok(ns.Recipes.Get(50001), "selected recipe read once settled")
+    T.ok(Mock.reagentLinkCalls <= 4, "settling reads the selected recipe, not all of them: " .. Mock.reagentLinkCalls)
+  end,
+
+  selection_hook_is_inert_while_the_window_reopens = function(T)
+    local ns, Core = load()
+    Mock.trade.selected = 1
+    openProfession(Core)                    -- hook installed, recipes known
+    Core.OnEvent("TRADE_SKILL_CLOSE")
+    Mock.reagentLinkCalls = 0
+    Core.OnEvent("TRADE_SKILL_SHOW")
+    Core.OnEvent("TRADE_SKILL_UPDATE")
+    TradeSkillFrame_SetSelection(1)
+    T.eq(Mock.reagentLinkCalls, 0, "hook does nothing while the window opens")
+    Core.OnUpdate(nil, 1.6)
+    TradeSkillFrame_SetSelection(1)
+    T.ok(Mock.reagentLinkCalls > 0, "hook works again once settled")
   end,
 
   background_scan_learns_everything_one_row_per_frame = function(T)
@@ -203,9 +224,9 @@ return {
     Core.OnEvent("TRADE_SKILL_SHOW")
     Core.OnUpdate(nil, 0.5)
     Core.OnEvent("TRADE_SKILL_UPDATE")       -- window still settling
-    Core.OnUpdate(nil, 0.8)
+    Core.OnUpdate(nil, 1.2)
     T.eq(ns.Recipes.Get(50001), nil, "nothing read while the window settles")
-    Core.OnUpdate(nil, 0.3)                  -- 1.1 s since the last update
+    Core.OnUpdate(nil, 0.4)                  -- 1.6 s since the last update
     Mock.reagentLinkCalls = 0
     Core.OnUpdate(nil, 0.016)
     T.ok(Mock.reagentLinkCalls <= 1, "one recipe per frame")
@@ -220,7 +241,7 @@ return {
     for i = 1, 30 do rows[i] = { name = "Recipe " .. i, id = 50000 + i, reagents = { { id = 60000 + i, name = "Mat" .. i, count = 1 } } } end
     Mock.trade.rows = rows
     Core.OnEvent("TRADE_SKILL_SHOW")
-    Core.OnUpdate(nil, 1.1)
+    Core.OnUpdate(nil, 1.6)
     Core.OnUpdate(nil, 0.016)
     Core.OnEvent("TRADE_SKILL_CLOSE")
     Mock.reagentLinkCalls = 0
@@ -235,7 +256,7 @@ return {
     Mock.trade.rows = rows
     local function openAndSettle()
       Core.OnEvent("TRADE_SKILL_SHOW")
-      Core.OnUpdate(nil, 1.1)
+      Core.OnUpdate(nil, 1.6)
       for _ = 1, 20 do Core.OnUpdate(nil, 0.016) end
       Core.OnEvent("TRADE_SKILL_CLOSE")
     end
@@ -285,7 +306,8 @@ return {
   diag_off_by_default = function(T)
     local _, Core = load()
     Core.OnEvent("TRADE_SKILL_SHOW")
-    T.ok(CraftProfitTrackCheck, "normal mode builds the checkbox immediately")
+    Core.OnUpdate(nil, 1.6)
+    T.ok(CraftProfitTrackCheck, "normal mode builds the checkbox once settled")
     T.ok(not chatHas("diag "))
   end,
 }

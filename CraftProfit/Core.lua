@@ -99,26 +99,17 @@ function Core.OnEvent(event, arg1)
   elseif event == "ADDON_LOADED" then
     if arg1 == "Blizzard_AuctionUI" then ns.UI.EnsurePanel() end
   elseif event == "TRADE_SKILL_SHOW" then
-    if ns.diag then
-      diagStartTailoring()
-      return
-    end
-    ns.UI.EnsureTrackButton()
-    ns.Recipes.ReadSelected()
-    ns.Recipes.StartBackgroundScan()
-    ns.UI.UpdateTrackButton()
+    -- Setup waits for PROFESSION_READY (window quiet for a moment).
+    ns.Recipes.WindowOpened()
+    if ns.diag then diagStartTailoring() end
   elseif event == "TRADE_SKILL_UPDATE" then
-    -- Fires often (every craft, filter change); keep it cheap. The selected
-    -- recipe is re-read by the TradeSkillFrame_SetSelection hook.
     if ns.diag then
       ns.diag.updates = (ns.diag.updates or 0) + 1
       if ns.diag.updates <= 3 then Util.Diag("TRADE_SKILL_UPDATE #" .. ns.diag.updates) end
-    else
-      ns.UI.EnsureTrackButton()
     end
     ns.Recipes.NoteUpdate()
   elseif event == "TRADE_SKILL_CLOSE" then
-    ns.Recipes.StopBackgroundScan()
+    ns.Recipes.WindowClosed()
   elseif event == "MERCHANT_SHOW" or event == "MERCHANT_UPDATE" then
     ns.Prices.RecordMerchant()
   elseif event == "AUCTION_HOUSE_SHOW" then
@@ -127,6 +118,17 @@ function Core.OnEvent(event, arg1)
     ns.Scanner.HandleEvent(event)
   end
 end
+
+ns.On("PROFESSION_READY", function()
+  if ns.diag then
+    Util.Diag("window settled")
+    return
+  end
+  ns.UI.EnsureTrackButton()
+  ns.Recipes.ReadSelected()
+  ns.UI.UpdateTrackButton()
+  ns.Recipes.StartBackgroundScan()
+end)
 
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(_, event, arg1) Core.OnEvent(event, arg1) end)
