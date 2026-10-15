@@ -122,6 +122,27 @@ function Mock.reset()
     return Mock.Link(a.id, a.name)
   end
 
+  -- Buying out a row of the "list" page: recorded in Mock.bought (one
+  -- { kind, index, amount, auction } per call), the auction leaves the page
+  -- and the AH, and the money goes.
+  Mock.money = 1000000000
+  Mock.bought = {}
+  GetMoney = function() return Mock.money end
+  PlaceAuctionBid = function(kind, i, amount)
+    local a = Mock.list[i]
+    Mock.bought[#Mock.bought + 1] = { kind = kind, index = i, amount = amount, auction = a }
+    if kind ~= "list" or not a then return end
+    table.remove(Mock.list, i)
+    Mock.total = math.max(0, Mock.total - 1)
+    for j, auction in ipairs(Mock.ah.auctions) do
+      if auction == a then
+        table.remove(Mock.ah.auctions, j)
+        break
+      end
+    end
+    Mock.money = Mock.money - amount
+  end
+
   Mock.reagentLinkCalls = 0
   GetTradeSkillReagentItemLink = function(i, j)
     Mock.reagentLinkCalls = Mock.reagentLinkCalls + 1

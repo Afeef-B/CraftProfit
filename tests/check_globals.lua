@@ -20,7 +20,7 @@ for name in ([[
   GetTradeSkillInfo GetTradeSkillItemLink GetTradeSkillNumMade GetTradeSkillNumReagents
   GetTradeSkillReagentInfo GetTradeSkillReagentItemLink
   NUM_AUCTION_ITEMS_PER_PAGE QueryAuctionItems CanSendAuctionQuery GetNumAuctionItems
-  GetAuctionItemInfo GetAuctionItemLink
+  GetAuctionItemInfo GetAuctionItemLink PlaceAuctionBid GetMoney
   CreateFrame AuctionFrame GameTooltip FauxScrollFrame_Update FauxScrollFrame_GetOffset
   FauxScrollFrame_OnVerticalScroll StaticPopupDialogs StaticPopup_Show
   EasyMenu UIParent
