@@ -328,4 +328,39 @@ return {
     T.eq((P.GetAH(CLOTH)), 500, "prices untouched")
     T.eq(S.IsBusy(), true, "still waiting for the data")
   end,
+
+  late_update_for_previous_search_ignored = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000), auction(THREAD, "Eternium Thread", 1, 300) }
+    S.StartTargeted({ CLOTH_ITEM, THREAD_ITEM })
+    S.Tick(0.1); Mock.deliver(ns)            -- cloth read
+    local clothList, clothTotal = Mock.list, Mock.total
+    S.Tick(0.1)                              -- thread query sent
+    local threadList, threadTotal = Mock.list, Mock.total
+    Mock.pending = false
+    Mock.list, Mock.total = clothList, clothTotal
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE") -- late update of the cloth page
+    T.eq(select(2, P.GetAH(THREAD)), nil, "stale page not read as thread")
+    Mock.list, Mock.total = threadList, threadTotal
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    T.eq((P.GetAH(THREAD)), 300)
+  end,
+
+  identical_page_accepted_after_retry = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(4305, "Bolt of Silk Cloth", 1, 100), auction(4305, "Bolt of Silk Cloth", 1, 120) }
+    S.StartTargeted({ { id = 4305, name = "Bolt of Silk Cloth" }, { id = 4306, name = "Silk Cloth" } })
+    T.ok(Mock.pump(ns), "finishes")
+    T.eq(#Mock.queries, 3, "one retry for the look-alike page")
+    local price, t, n = P.GetAH(4306)
+    T.eq(price, nil); T.eq(t, Mock.now); T.eq(n, 0)
+  end,
+
+  consecutive_empty_results_are_not_stale = function(T)
+    local ns, S, P = load()
+    S.StartTargeted({ CLOTH_ITEM, THREAD_ITEM })
+    Mock.pump(ns)
+    T.eq(#Mock.queries, 2)
+    T.eq(select(3, P.GetAH(THREAD)), 0)
+  end,
 }

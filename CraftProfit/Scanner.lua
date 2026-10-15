@@ -21,6 +21,10 @@ Scanner.statusText = ""
 local db
 local state = "idle"   -- idle | send | wait | allSend | allWait | allRead
 local job
+-- Fingerprint of the last results page we read. The client can fire a late
+-- AUCTION_ITEM_LIST_UPDATE for that page after our next search went out;
+-- an identical page is then not the answer to the new search.
+local lastPrint
 
 function Scanner.SetDB(savedDB)
   db = savedDB
@@ -104,15 +108,29 @@ local function allLinksReady(batch)
   return true
 end
 
+local function pagePrint(batch, total)
+  if batch == 0 then return nil end -- no late updates for empty pages
+  local _, _, firstCount, _, _, _, _, _, firstBuyout = GetAuctionItemInfo("list", 1)
+  local _, _, lastCount, _, _, _, _, _, lastBuyout = GetAuctionItemInfo("list", batch)
+  return table.concat({
+    batch, total or 0,
+    GetAuctionItemLink("list", 1) or "?", firstCount or 0, firstBuyout or 0,
+    GetAuctionItemLink("list", batch) or "?", lastCount or 0, lastBuyout or 0,
+  }, ":")
+end
+
 -- Read the current results page for the item being scanned. Unless forced,
 -- waits for the next update when some item links aren't cached yet.
 local function readPage(force)
   local batch, total = GetNumAuctionItems("list")
+  local fingerprint = pagePrint(batch, total)
+  if not force and fingerprint and fingerprint == lastPrint then return end
   if not force and not allLinksReady(batch) then
     job.linkWait = job.linkWait or 0
     return
   end
 
+  lastPrint = fingerprint
   local target = job.items[job.index].id
   for i = 1, batch do
     if ns.Util.ItemIDFromLink(GetAuctionItemLink("list", i)) == target then
@@ -242,6 +260,8 @@ function Scanner.Tick(elapsed)
     elseif job.waited >= QUERY_TIMEOUT then
       if job.retries < 1 then
         job.retries = job.retries + 1
+        -- The retry's answer may legitimately repeat the last page.
+        lastPrint = nil
         state = "send"
       else
         ns.Util.Print("No answer from the AH for " .. job.items[job.index].name .. ", skipped.")
