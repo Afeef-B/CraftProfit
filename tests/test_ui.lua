@@ -43,7 +43,7 @@ return {
     T.eq(#UI.rowsData, 2)
     T.eq(UI.rowsData[1].name, "Frostweave Bag")   -- profit 3000
     T.eq(UI.rowsData[2].name, "Frostweave Net")   -- no sell price
-    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (ready-made)")
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag")
     T.eq(UI.rows[1].profit:GetText(), "|cff40ff4030s|r")
     T.eq(UI.rows[1].margin:GetText(), "|cff40ff4046%|r")
     T.eq(UI.rows[2].profit:GetText(), "|cff808080?|r")
@@ -66,6 +66,11 @@ return {
     UI.Refresh()
     UI.RowTooltip(UI.rowsData[1])
     T.ok(tooltipHas("Frostweave Bag"))
+    T.eq(Mock.tooltip[1], "Frostweave Bag")
+    T.eq(Mock.tooltip[2], "Materials: ready-made")
+    UI.rowsData[1].depth = nil                   -- missing depth reads as ready-made
+    UI.RowTooltip(UI.rowsData[1])
+    T.eq(Mock.tooltip[2], "Materials: ready-made")
     T.ok(tooltipHas("6x Frostweave Cloth | 60s  (10s each, AH 5m)"))
     T.ok(tooltipHas("AH cut 5% | -5s"))
     T.ok(tooltipHas("Profit"))
@@ -78,7 +83,7 @@ return {
     ns.Recipes.SetTracked(BAG, true)
     UI.EnsurePanel()
     UI.Refresh()
-    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (ready-made)")
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag")      -- ready-made: no marker
 
     UI.rows[1]:GetScript("OnClick")(UI.rows[1], "RightButton")
     local menu = Mock.menu
@@ -93,14 +98,19 @@ return {
 
     menu[2].func()
     T.eq(ns.Recipes.Depth(BAG), "scratch")
-    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (from scratch)")
+    T.eq(UI.rows[1].name:GetText(), "|cff66ccff[S]|r Frostweave Bag")
+    UI.RowTooltip(UI.rowsData[1])
+    T.eq(Mock.tooltip[1], "Frostweave Bag")
+    T.eq(Mock.tooltip[2], "Materials: from scratch")
 
     UI.rows[1]:GetScript("OnClick")(UI.rows[1], "RightButton")
     T.ok(not Mock.menu[1].checked, "ready not checked")
     T.eq(Mock.menu[2].checked, true)
     Mock.menu[1].func()
     T.eq(ns.Recipes.Depth(BAG), "ready")
-    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (ready-made)")
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag")
+    UI.RowTooltip(UI.rowsData[1])
+    T.eq(Mock.tooltip[2], "Materials: ready-made")
 
     UI.rows[1]:GetScript("OnClick")(UI.rows[1], "RightButton")
     Mock.menu[3].func()

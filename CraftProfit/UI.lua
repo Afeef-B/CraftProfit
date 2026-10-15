@@ -12,7 +12,10 @@ local WIDTH, HEIGHT = 400, 424
 local ROWS, ROW_HEIGHT = 14, 20
 local GOOD, BAD, GREY, WHITE = "|cff40ff40", "|cffff4040", "|cff808080", "|cffffffff"
 local SOURCE_LABEL = { ah = "AH", vendor = "vendor", craft = "craft", manual = "manual", atr = "Atr" }
-local DEPTH_SUFFIX = { ready = " (ready-made)", scratch = " (from scratch)" }
+-- Ready-made rows (the default) carry no marker. From-scratch rows start
+-- with one, because the end of a long name gets clipped by the column.
+local SCRATCH_PREFIX = "|cff66ccff[S]|r "
+local DEPTH_LABEL = { ready = "ready-made", scratch = "from scratch" }
 local NOTHING_TRACKED = "Nothing tracked yet. Tick \"Track\" on a recipe in your profession window."
 
 local db
@@ -54,7 +57,7 @@ local function fillRow(row, result)
   row.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
   local name = result.name
   if result.made ~= 1 then name = name .. " x" .. result.made end
-  row.name:SetText(name .. (DEPTH_SUFFIX[result.depth] or ""))
+  row.name:SetText((result.depth == "scratch" and SCRATCH_PREFIX or "") .. name)
 
   local stale = anyStale(result)
   row.cost:SetText(moneyCell(result.cost, stale))
@@ -96,6 +99,7 @@ end
 function UI.RowTooltip(result)
   GameTooltip:ClearLines()
   GameTooltip:AddLine(result.name)
+  GameTooltip:AddLine("Materials: " .. DEPTH_LABEL[result.depth or "ready"], 0.7, 0.7, 0.7)
   for _, line in ipairs(result.lines) do
     local left = line.count .. "x " .. line.name
     if line.unit then
