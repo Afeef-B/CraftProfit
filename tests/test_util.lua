@@ -85,6 +85,13 @@ return {
     T.eq(Mock.chat[1], "|cff33ff99CraftProfit|r: hello")
   end,
 
+  icons_are_texture_escapes = function(T)
+    local U = load().Util
+    T.eq(U.ICON_OK, "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t")
+    T.eq(U.ICON_WARN, "|TInterface\\DialogFrame\\UI-Dialog-Icon-AlertNew:14|t")
+    T.eq(U.ICON_GOLD, "|TInterface\\MoneyFrame\\UI-GoldIcon:14|t")
+  end,
+
   now_uses_time = function(T)
     local ns = load()
     Mock.now = 42

@@ -6,6 +6,11 @@ local floor = math.floor
 ns.Util = {}
 local Util = ns.Util
 
+-- Inline texture icons: the 3.3.5 fonts have no check mark or warning glyphs.
+Util.ICON_OK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t"
+Util.ICON_WARN = "|TInterface\\DialogFrame\\UI-Dialog-Icon-AlertNew:14|t"
+Util.ICON_GOLD = "|TInterface\\MoneyFrame\\UI-GoldIcon:14|t"
+
 -- Tiny synchronous event bus so modules don't reference each other's internals.
 local listeners = {}
 

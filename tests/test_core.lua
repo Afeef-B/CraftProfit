@@ -2,7 +2,7 @@ local Mock = require("wow_mock")
 
 local BAG, BOLT, CLOTH, THREAD, DUST = 41599, 41510, 33470, 38426, 34054
 
-local ALL = { "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "UI.lua", "Core.lua" }
+local ALL = { "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "UI.lua", "Core.lua" }
 
 local function load(savedDB)
   Mock.reset()

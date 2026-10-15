@@ -5,7 +5,7 @@ local BAG, NET, CLOTH, THREAD = 41599, 41509, 33470, 38426
 local function load()
   Mock.reset()
   Mock.installUI()
-  local ns = Mock.load({ "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "UI.lua" })
+  local ns = Mock.load({ "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "UI.lua" })
   local db, chardb = { cut = 0.05 }, {}
   ns.Prices.SetDB(db, "Icecrown-Alliance")
   ns.Recipes.SetDB(chardb)
