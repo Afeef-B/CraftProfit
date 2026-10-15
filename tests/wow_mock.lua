@@ -172,6 +172,25 @@ function FrameMethods.GetHeight() return 0 end
 function FrameMethods.AddLine(self, text) table.insert(Mock.tooltip, text or "") end
 function FrameMethods.AddDoubleLine(self, left, right) table.insert(Mock.tooltip, (left or "") .. " | " .. (right or "")) end
 function FrameMethods.ClearLines() Mock.tooltip = {} end
+function FrameMethods.SetID(self, id) self._id = id end
+function FrameMethods.GetID(self) return self._id or 0 end
+function FrameMethods.SetBackdrop(self, backdrop) self._backdrop = backdrop end
+-- SetPoint(point [, relativeTo, relativePoint] [, x, y]): one entry per point,
+-- a repeated point replaces the old anchor, as in the client.
+function FrameMethods.SetPoint(self, point, relativeTo, relativePoint, x, y)
+  if type(relativeTo) == "number" then
+    relativeTo, relativePoint, x, y = nil, nil, relativeTo, relativePoint
+  end
+  local entry = { point = point, rel = relativeTo, relPoint = relativePoint or point, x = x or 0, y = y or 0 }
+  self._points = self._points or {}
+  for i, old in ipairs(self._points) do
+    if old.point == point then
+      self._points[i] = entry
+      return
+    end
+  end
+  self._points[#self._points + 1] = entry
+end
 
 function Mock.installUI()
   -- Named frames from earlier tests must not leak into this one.
@@ -180,6 +199,9 @@ function Mock.installUI()
     if type(key) == "string" and key:match("^CraftProfit") then stale[#stale + 1] = key end
   end
   for _, key in ipairs(stale) do _G[key] = nil end
+  for key in pairs(_G) do
+    if type(key) == "string" and key:match("^AuctionFrameTab%d+$") then _G[key] = nil end
+  end
   Mock.tooltip = {}
   Mock.popup = nil
   CreateFrame = function(kind, name, parent, template)
@@ -190,10 +212,37 @@ function Mock.installUI()
       if template == "FauxScrollFrameTemplate" then _G[name .. "ScrollBar"] = newObject(name .. "ScrollBar") end
       if template == "UICheckButtonTemplate" then _G[name .. "Text"] = newObject(name .. "Text") end
     end
+    if template == "AuctionTabTemplate" then
+      -- The template's OnClick forwards to the global (looked up at click time,
+      -- so a hooksecurefunc wrapper is honoured).
+      f._scripts.OnClick = function(self, button, down) AuctionFrameTab_OnClick(self, button, down) end
+    end
     return f
   end
   UIParent = newObject("UIParent")
   AuctionFrame = newObject("AuctionFrame")
+  -- Blizzard's tabs: ids 1-3, each anchored to the previous tab's TOPRIGHT at x -8.
+  Mock.numTabs, Mock.selectedTab, Mock.lastTab = nil, nil, nil
+  for i = 1, 3 do
+    local tab = CreateFrame("Button", "AuctionFrameTab" .. i, AuctionFrame, "AuctionTabTemplate")
+    tab:SetID(i)
+    if i > 1 then tab:SetPoint("TOPLEFT", _G["AuctionFrameTab" .. (i - 1)], "TOPRIGHT", -8, 0) end
+  end
+  PanelTemplates_SetNumTabs = function(frame, n)
+    frame.numTabs = n
+    Mock.numTabs = n
+  end
+  PanelTemplates_SetTab = function(frame, id)
+    frame.selectedTab = id
+    Mock.selectedTab = id
+  end
+  PanelTemplates_TabResize = function(tab, padding) tab._resized = padding end
+  -- Blizzard's handler would also hide/show its own pages; the mock only records.
+  AuctionFrameTab_OnClick = function(self)
+    local id = self:GetID()
+    PanelTemplates_SetTab(AuctionFrame, id)
+    Mock.lastTab = id
+  end
   TradeSkillFrame = newObject("TradeSkillFrame")
   TradeSkillDetailScrollChildFrame = newObject("TradeSkillDetailScrollChildFrame")
   TradeSkillSkillName = newObject("TradeSkillSkillName")

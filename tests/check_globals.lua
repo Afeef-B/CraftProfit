@@ -24,6 +24,7 @@ for name in ([[
   CreateFrame AuctionFrame GameTooltip FauxScrollFrame_Update FauxScrollFrame_GetOffset
   FauxScrollFrame_OnVerticalScroll StaticPopupDialogs StaticPopup_Show
   EasyMenu UIParent
+  PanelTemplates_SetNumTabs PanelTemplates_TabResize AuctionFrameTab_OnClick
   TradeSkillDetailScrollChildFrame TradeSkillSkillName SlashCmdList IsAddOnLoaded
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
