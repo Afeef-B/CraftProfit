@@ -142,8 +142,9 @@ function Listings.Summarize(rows)
   return s
 end
 
--- One step under `price`: a whole silver below 1s, one copper under that.
-local function stepUnder(price)
+-- One step under `price`: the whole silver below it above 1s, else 1c under
+-- (never under 1c).
+function Listings.StepUnder(price)
   if price > 100 then return floor((price - 1) / 100) * 100 end
   return math.max(1, price - 1)
 end
@@ -160,7 +161,7 @@ function Listings.UndercutPrice(rows, fallback)
   if s.lowestMine and s.lowestMine <= s.lowestOther then
     return s.lowestMine, "match-own"
   end
-  return stepUnder(s.lowestOther), "undercut"
+  return Listings.StepUnder(s.lowestOther), "undercut"
 end
 
 -- How our cheapest listing compares with the cheapest other seller:

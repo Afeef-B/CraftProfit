@@ -35,7 +35,9 @@ function Mock.reset()
     end
     local item = Mock.items[id]
     if not item then return nil end
-    return item.name, Mock.Link(id, item.name)
+    -- name, link, rarity, level, minLevel, type, subType, maxStack, equipLoc, texture, sellPrice
+    return item.name, Mock.Link(id, item.name), 1, 1, 1, "Misc", "Misc",
+      item.maxStack or 1, "", item.texture or "Interface\\Icons\\INV_Misc_Bag_01", 0
   end
 
   -- Merchant: Mock.merchant = { { id, name, price, quantity, extendedCost } }
@@ -141,6 +143,70 @@ function Mock.reset()
       end
     end
     Mock.money = Mock.money - amount
+  end
+
+  -- Bags 0-4, the cursor and the Auction House sell slot.
+  -- Mock.bags[bag][slot] = { id, name, count }. Picking an item up puts a copy
+  -- { id, name, count, bag, slot } on Mock.cursor; the item itself stays in its
+  -- bag (the client only locks it). ClickAuctionSellItemButton swaps the cursor
+  -- with Mock.sellSlot; Mock.auctionable[id] == false refuses the item, which
+  -- then stays on the cursor. ClearCursor counts its calls in Mock.cleared.
+  -- StartAuction records its arguments, in call order, in Mock.started.
+  Mock.bags = {}
+  Mock.cursor, Mock.sellSlot = nil, nil
+  Mock.cleared = 0
+  Mock.started = {}
+  Mock.auctionable = {}
+  GetContainerNumSlots = function(bag)
+    local n = 0
+    for slot in pairs(Mock.bags[bag] or {}) do
+      if slot > n then n = slot end
+    end
+    return n
+  end
+  GetContainerItemLink = function(bag, slot)
+    local item = Mock.bags[bag] and Mock.bags[bag][slot]
+    if not item then return nil end
+    return Mock.Link(item.id, item.name)
+  end
+  GetItemCount = function(id)
+    local total = 0
+    for _, contents in pairs(Mock.bags) do
+      for _, item in pairs(contents) do
+        if item.id == id then total = total + (item.count or 1) end
+      end
+    end
+    return total
+  end
+  PickupContainerItem = function(bag, slot)
+    local item = Mock.bags[bag] and Mock.bags[bag][slot]
+    local locked = Mock.sellSlot and Mock.sellSlot.bag == bag and Mock.sellSlot.slot == slot
+    if item and not Mock.cursor and not locked then
+      Mock.cursor = { id = item.id, name = item.name, count = item.count or 1, bag = bag, slot = slot }
+    end
+  end
+  GetCursorInfo = function()
+    if not Mock.cursor then return nil end
+    return "item", Mock.cursor.id, Mock.Link(Mock.cursor.id, Mock.cursor.name)
+  end
+  ClearCursor = function()
+    Mock.cleared = Mock.cleared + 1
+    Mock.cursor = nil
+  end
+  ClickAuctionSellItemButton = function()
+    local held = Mock.cursor
+    if held and Mock.auctionable[held.id] == false then return end
+    Mock.cursor, Mock.sellSlot = Mock.sellSlot, held
+  end
+  -- name, texture, count, quality, canUse, price, pricePerUnit, stackCount, totalCount
+  GetAuctionSellItemInfo = function()
+    local slot = Mock.sellSlot
+    if not slot then return nil end
+    return slot.name, "tex", slot.count, 1, true, 0, 0, slot.count, GetItemCount(slot.id)
+  end
+  CalculateAuctionDeposit = function(runTime, count) return count * 100 * runTime end
+  StartAuction = function(...)
+    Mock.started[#Mock.started + 1] = { n = select("#", ...), ... }
   end
 
   Mock.reagentLinkCalls = 0

@@ -26,6 +26,9 @@ for name in ([[
   EasyMenu UIParent
   PanelTemplates_SetNumTabs PanelTemplates_TabResize AuctionFrameTab_OnClick
   TradeSkillDetailScrollChildFrame TradeSkillSkillName SlashCmdList IsAddOnLoaded
+  GetAuctionSellItemInfo StartAuction CalculateAuctionDeposit ClickAuctionSellItemButton
+  PickupContainerItem GetCursorInfo ClearCursor GetContainerNumSlots GetContainerItemLink
+  GetItemCount
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
 local files = { ... }

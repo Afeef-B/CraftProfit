@@ -108,6 +108,17 @@ return {
     T.eq(next(empty), nil)
   end,
 
+  step_under_cases = function(T)
+    local _, L = load()
+    T.eq(L.StepUnder(g(420)), g(419, 99))
+    T.eq(L.StepUnder(g(419, 99, 57)), g(419, 99))
+    T.eq(L.StepUnder(101), 100)
+    T.eq(L.StepUnder(100), 99, "100c is not above the silver line")
+    T.eq(L.StepUnder(50), 49)
+    T.eq(L.StepUnder(2), 1)
+    T.eq(L.StepUnder(1), 1, "never below 1c")
+  end,
+
   undercut_price_cases = function(T)
     local _, L = load()
     local function price(unit, seller, mine)
