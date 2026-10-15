@@ -77,11 +77,70 @@ function Mock.reset()
     local r = Mock.trade.rows[i].reagents[j]
     return r.name, "tex", r.count, 0
   end
+  -- Auction House: Mock.ah.auctions = { {id, name, count, buyout} }.
+  -- QueryAuctionItems fills the "list" view; tests deliver the event.
+  Mock.ah = { auctions = {}, canQuery = true, canQueryAll = true, nilLinks = false }
+  Mock.queries = {}
+  Mock.pending = false
+  Mock.list, Mock.total = {}, 0
+  NUM_AUCTION_ITEMS_PER_PAGE = 50
+  QueryAuctionItems = function(...)
+    local q = { n = select("#", ...), ... }
+    Mock.queries[#Mock.queries + 1] = q
+    local name, page, getAll = q[1], q[7] or 0, q[10]
+    local matches = {}
+    for _, a in ipairs(Mock.ah.auctions) do
+      if getAll or a.name:lower():find((name or ""):lower(), 1, true) then
+        matches[#matches + 1] = a
+      end
+    end
+    Mock.list, Mock.total = {}, #matches
+    if getAll then
+      Mock.list = matches
+    else
+      for i = page * 50 + 1, math.min(#matches, page * 50 + 50) do
+        Mock.list[#Mock.list + 1] = matches[i]
+      end
+    end
+    Mock.pending = true
+  end
+  CanSendAuctionQuery = function() return Mock.ah.canQuery, Mock.ah.canQueryAll end
+  GetNumAuctionItems = function(kind) return #Mock.list, Mock.total end
+  GetAuctionItemInfo = function(kind, i)
+    local a = Mock.list[i]
+    return a.name, "tex", a.count, 1, 1, 80, 1, 0, a.buyout, 0, nil, "Seller"
+  end
+  GetAuctionItemLink = function(kind, i)
+    local a = Mock.list[i]
+    if Mock.ah.nilLinks or a.nilLink then return nil end
+    return Mock.Link(a.id, a.name)
+  end
+
   GetTradeSkillReagentItemLink = function(i, j)
     local r = Mock.trade.rows[i].reagents[j]
     if r.uncached then return nil end
     return Mock.Link(r.id, r.name)
   end
+end
+
+-- Answer the last query, as the server would.
+function Mock.deliver(ns)
+  if Mock.pending then
+    Mock.pending = false
+    ns.Scanner.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    return true
+  end
+  return false
+end
+
+-- Tick the scanner and answer queries until it goes idle.
+function Mock.pump(ns, maxSteps)
+  for _ = 1, maxSteps or 500 do
+    ns.Scanner.Tick(0.1)
+    Mock.deliver(ns)
+    if not ns.Scanner.IsBusy() then return true end
+  end
+  return false
 end
 
 function Mock.Link(id, name)

@@ -19,6 +19,8 @@ for name in ([[
   GetTradeSkillLine IsTradeSkillLinked GetNumTradeSkills GetTradeSkillSelectionIndex
   GetTradeSkillInfo GetTradeSkillItemLink GetTradeSkillNumMade GetTradeSkillNumReagents
   GetTradeSkillReagentInfo GetTradeSkillReagentItemLink
+  NUM_AUCTION_ITEMS_PER_PAGE QueryAuctionItems CanSendAuctionQuery GetNumAuctionItems
+  GetAuctionItemInfo GetAuctionItemLink
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
 local files = { ... }
