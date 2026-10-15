@@ -306,6 +306,14 @@ function UI.EnsurePanel()
   UI.footer:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 20, 18)
 end
 
+function UI.ShowPanel()
+  UI.EnsurePanel()
+  if not panel then return end
+  panel:Show()
+  UI.Refresh()
+  UI.UpdateScanButtons()
+end
+
 function UI.Toggle()
   if not panel then return end
   if panel:IsShown() then panel:Hide() else panel:Show() end
