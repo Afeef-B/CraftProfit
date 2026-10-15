@@ -138,11 +138,12 @@ return {
     ns.Scanner.Tick(0.1)
     T.eq(#Mock.queries, 1)
     T.eq(Mock.queries[1][1], BAG_NAME)
-    T.eq(ns.Flip.State(BAG), "idle")
-    T.eq(#changes, 0, "the state did not change")
+    T.eq(ns.Flip.State(BAG), "bought")
+    T.eq(#changes, 1, "idle -> bought")
     -- The check finishes: the bought listing is gone from the cache.
     T.ok(Mock.pump(ns))
     T.eq(ns.Flip.Info(BAG), nil)
+    T.eq(ns.Flip.State(BAG), "idle")
   end,
 
   buy_picks_the_right_index_on_the_page = function(T)
@@ -177,6 +178,7 @@ return {
     local ns = setup()
     local changes = recordChanges(ns)
     Mock.ah.auctions[1].buyout = gold(60)
+    leavePage()
     local ok, msg = ns.Flip.Buy(BAG, BAG_NAME)
     T.eq(ok, false)
     T.eq(msg, "Finding it...")
@@ -193,6 +195,22 @@ return {
     T.eq(#Mock.bought, 0)
   end,
 
+  buy_with_the_relisted_row_already_on_the_page = function(T)
+    -- The loaded page already shows the 60g relisting: no bid, and the search
+    -- for the 50g one answers with the very same page.
+    local ns = setup()
+    Mock.ah.auctions[1].buyout = gold(60)
+    local ok, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(ok, false)
+    T.eq(msg, "Finding it...")
+    T.eq(#Mock.bought, 0)
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "finding", "an identical page is not an answer")
+    ns.Flip.Tick(10)
+    T.eq(ns.Flip.State(BAG), "idle", "so it times out instead")
+    T.eq(#Mock.bought, 0)
+  end,
+
   buy_requires_every_field = function(T)
     local mutations = {
       seller = function(a) a.seller = "Someone" end,
@@ -206,6 +224,9 @@ return {
       local ok = ns.Flip.Buy(BAG, BAG_NAME)
       T.eq(ok, false, field)
       T.eq(#Mock.bought, 0, "different " .. field .. ": no bid")
+      ns.Flip.Reset()
+      leavePage()                       -- and again, loading it fresh
+      T.eq(ns.Flip.Buy(BAG, BAG_NAME), false, field)
       answer(ns)
       T.eq(ns.Flip.State(BAG), "gone", field)
       T.eq(#Mock.bought, 0, field)
@@ -295,6 +316,7 @@ return {
   state_resets_after_a_fresh_price_check = function(T)
     local ns = setup()
     Mock.ah.auctions[1].buyout = gold(60)
+    leavePage()
     ns.Flip.Buy(BAG, BAG_NAME)
     answer(ns)
     T.eq(ns.Flip.State(BAG), "gone")
@@ -420,18 +442,23 @@ return {
 
     click(w)
     T.eq(#Mock.bought, 1)
+    T.eq(w.button:GetText(), "Bought")
+    T.eq(w.button:IsEnabled(), false)
   end,
 
   widget_gone_state = function(T)
     local ns = setup()
     local w = newWidget(ns)
+    w:Update()
     Mock.ah.auctions[1].buyout = gold(60)
+    leavePage()
     click(w)
     answer(ns)
     T.eq(ns.Flip.State(BAG), "gone")
-    T.eq(w.button:GetText(), "That listing is gone.")
-    T.eq(w.button:IsEnabled(), false)
+    T.eq(w.button:GetText(), "Gone - try again")
+    T.eq(w.button:IsEnabled(), true, "the player can search again")
     T.eq(w.frame:IsShown(), true, "the notice stays so the player sees what happened")
+    T.ok(has(w.notice:GetText(), "That listing is gone."), w.notice:GetText())
   end,
 
   widget_click_buys_and_shows_the_message = function(T)
@@ -448,6 +475,7 @@ return {
   widget_shows_not_enough_gold = function(T)
     local ns = setup()
     local w = newWidget(ns)
+    w:Update()
     Mock.money = 1
     click(w)
     T.eq(#Mock.bought, 0)
@@ -460,6 +488,7 @@ return {
   widget_shows_busy_message = function(T)
     local ns = setup()
     local w = newWidget(ns)
+    w:Update()
     leavePage()
     ns.Scanner.PriceCheck(ITEM)
     click(w)
@@ -469,6 +498,7 @@ return {
   widget_message_does_not_repeat_the_button = function(T)
     local ns = setup()
     local w = newWidget(ns)
+    w:Update()
     leavePage()
     click(w)
     T.eq(w.button:GetText(), "Finding it...")
@@ -491,7 +521,309 @@ return {
     ns.Flip.Info(BAG)
     ns.Fire("LISTINGS_UPDATED", BAG)
     ns.Fire("FLIP_CHANGED", BAG)
+    ns.Flip.Tick(100)
+    ns.Flip.Reset()
     T.eq(#Mock.bought, 0)
+  end,
+
+  second_click_after_purchase_does_not_buy = function(T)
+    -- One seller posted two identical mistake stacks.
+    local ns = setup({
+      auction("Flipper", 1, gold(50)),
+      auction("Flipper", 1, gold(50)),
+      auction("Bob", 1, gold(420)),
+      auction("Carl", 1, gold(430)),
+    })
+    local w = newWidget(ns)
+    w:Update()
+    click(w)
+    T.eq(#Mock.bought, 1)
+    T.eq(ns.Flip.State(BAG), "bought")
+    T.eq(w.button:GetText(), "Bought")
+    T.eq(w.button:IsEnabled(), false)
+
+    click(w)                                   -- a double click
+    T.eq(#Mock.bought, 1, "the second identical stack is not bought by the same click")
+    local ok, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(ok, false)
+    T.eq(msg, "Already bought")
+    T.eq(#Mock.bought, 1)
+
+    -- The fresh price check replaces the rows: the second stack is a new offer.
+    T.ok(Mock.pump(ns), "price check finished")
+    T.eq(ns.Flip.State(BAG), "idle")
+    T.eq(w.button:GetText(), "Buy it")
+    T.eq(w.button:IsEnabled(), true)
+    click(w)
+    T.eq(#Mock.bought, 2, "a deliberate click on the next stack buys it")
+  end,
+
+  bought_state_follows_the_row_not_the_item = function(T)
+    local ns = setup()
+    ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(ns.Flip.State(BAG), "bought")
+    -- Rows replaced without a new flip: nothing left to be "bought".
+    ns.Listings.Store(BAG, {})
+    T.eq(ns.Flip.State(BAG), "idle")
+    T.eq(ns.Flip.Info(BAG), nil)
+  end,
+
+  finding_times_out = function(T)
+    local ns = setup()
+    local changes = recordChanges(ns)
+    local statuses = {}
+    ns.On("PAGE_STATUS", function(msg) statuses[#statuses + 1] = msg end)
+    local w = newWidget(ns)
+    w:Update()
+    leavePage()
+    click(w)
+    T.eq(ns.Flip.State(BAG), "finding")
+    ns.Flip.Tick(5)
+    T.eq(ns.Flip.State(BAG), "finding", "10 s have not passed")
+    local before = #changes
+    ns.Flip.Tick(5.1)
+    T.eq(ns.Flip.State(BAG), "idle")
+    T.eq(#changes, before + 1, "the widgets are told")
+    T.eq(statuses[#statuses], "Couldn't find it - try again")
+    T.eq(w.button:GetText(), "Buy it")
+    T.eq(w.button:IsEnabled(), true, "the player can retry")
+    T.ok(has(w.notice:GetText(), "Couldn't find it - try again"), w.notice:GetText())
+    T.eq(#Mock.bought, 0, "Tick never buys")
+    -- A late answer after the timeout changes nothing.
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "idle")
+    -- And another click searches again.
+    Mock.queries = {}
+    leavePage()
+    click(w)
+    T.eq(ns.Flip.State(BAG), "finding")
+    T.eq(#Mock.queries, 1)
+  end,
+
+  tick_without_waiting_states_does_nothing = function(T)
+    local ns = setup()
+    local changes = recordChanges(ns)
+    ns.Flip.Tick(100)
+    T.eq(#changes, 0)
+    ns.Flip.Buy(BAG, BAG_NAME)                  -- bought
+    ns.Flip.Tick(100)
+    T.eq(ns.Flip.State(BAG), "bought")
+    T.eq(#Mock.bought, 1)
+  end,
+
+  reset_clears_states = function(T)
+    local ns = setup()
+    local w = newWidget(ns)
+    w:Update()
+    leavePage()
+    click(w)
+    T.eq(ns.Flip.State(BAG), "finding")
+    ns.Flip.Reset()                              -- the AH was closed
+    T.eq(ns.Flip.State(BAG), "idle")
+    T.eq(w.button:GetText(), "Buy it", "widget redrawn")
+    T.eq(w.button:IsEnabled(), true)
+    ns.Flip.Tick(100)
+    T.eq(ns.Flip.State(BAG), "idle", "no timeout message afterwards")
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "idle", "a late answer is ignored")
+
+    -- Every state goes: ready, gone and bought too.
+    local bag2 = setup()
+    bag2.Flip.Buy(BAG, BAG_NAME)
+    T.eq(bag2.Flip.State(BAG), "bought")
+    bag2.Flip.Reset()
+    T.eq(bag2.Flip.State(BAG), "idle")
+  end,
+
+  stale_identical_page_does_not_say_gone = function(T)
+    local ns = setup()
+    local function elsewhere()                   -- what the player was looking at
+      return {
+        { id = 999, name = "Other", count = 1, buyout = gold(1), seller = "Zed" },
+        { id = 999, name = "Other", count = 3, buyout = gold(9), seller = "Zed" },
+      }
+    end
+    Mock.list, Mock.total = elsewhere(), 2
+    T.eq(ns.Flip.Buy(BAG, BAG_NAME), false)
+    T.eq(ns.Flip.State(BAG), "finding")
+    local answerList, answerTotal = Mock.list, Mock.total
+
+    -- A late update for the page we left arrives first.
+    Mock.list, Mock.total = elsewhere(), 2
+    ns.Flip.OnListUpdate()
+    T.eq(ns.Flip.State(BAG), "finding", "that is the old page, not the answer")
+    ns.Flip.Tick(3)
+    T.eq(ns.Flip.State(BAG), "finding", "and forcing a decision does not use it either")
+
+    Mock.list, Mock.total = answerList, answerTotal
+    ns.Flip.OnListUpdate()
+    T.eq(ns.Flip.State(BAG), "ready")
+    T.eq(#Mock.bought, 0)
+  end,
+
+  gone_can_retry = function(T)
+    local ns = setup()
+    local w = newWidget(ns)
+    w:Update()
+    Mock.ah.auctions[1].buyout = gold(60)
+    leavePage()
+    click(w)
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "gone")
+    T.eq(w.button:GetText(), "Gone - try again")
+    T.eq(w.button:IsEnabled(), true)
+
+    Mock.queries = {}
+    Mock.ah.auctions[1].buyout = gold(50)        -- relisted at the old price
+    leavePage()
+    click(w)
+    T.eq(#Mock.queries, 1, "a new search")
+    T.eq(Mock.queries[1][1], BAG_NAME)
+    T.eq(ns.Flip.State(BAG), "finding")
+    T.eq(#Mock.bought, 0)
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "ready")
+    T.eq(#Mock.bought, 0)
+    click(w)
+    T.eq(#Mock.bought, 1)
+  end,
+
+  unreadable_rows_decided_after_wait = function(T)
+    local ns = setup()
+    Mock.ah.auctions[1].buyout = gold(60)        -- Flipper relisted
+    Mock.ah.auctions[2].nilLink = true           -- Bob's row never loads
+    Mock.list, Mock.total = {}, 0
+    ns.Flip.Buy(BAG, BAG_NAME)
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "finding", "an unreadable row might be it: wait")
+    ns.Flip.OnListUpdate()
+    T.eq(ns.Flip.State(BAG), "finding", "more updates do not restart or end the wait")
+    ns.Flip.Tick(1)
+    T.eq(ns.Flip.State(BAG), "finding")
+    ns.Flip.Tick(1.1)
+    T.eq(ns.Flip.State(BAG), "gone", "after 2 s only the readable rows count")
+    T.eq(#Mock.bought, 0)
+  end,
+
+  unreadable_rows_do_not_hide_the_listing = function(T)
+    local ns = setup()
+    Mock.ah.auctions[2].nilLink = true           -- Bob's row never loads
+    leavePage()
+    ns.Flip.Buy(BAG, BAG_NAME)
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "ready", "the exact row is readable: no need to wait")
+    T.eq(#Mock.bought, 0)
+  end,
+
+  click_refuses_when_shown_row_changed = function(T)
+    local ns = setup()
+    -- A second item with a mistake listing of its own.
+    local ROBE = 41600
+    local function robe(seller, buyout)
+      return { id = ROBE, name = "Frostweave Robe", count = 1, buyout = buyout, seller = seller }
+    end
+    local auctions = Mock.ah.auctions
+    auctions[#auctions + 1] = robe("RobeFlipper", gold(50))
+    auctions[#auctions + 1] = robe("Dan", gold(420))
+    auctions[#auctions + 1] = robe("Eve", gold(430))
+    Mock.items[ROBE] = { name = "Frostweave Robe" }
+    assert(ns.Scanner.PriceCheck({ id = ROBE, name = "Frostweave Robe" }))
+    assert(Mock.pump(ns))
+    T.ok(ns.Flip.Info(ROBE), "robe flip found")
+    Mock.queries = {}
+
+    local shown, shownName = BAG, BAG_NAME
+    local statuses = {}
+    ns.On("PAGE_STATUS", function(msg) statuses[#statuses + 1] = msg end)
+    local w = ns.Flip.CreateWidget(UIParent, function() return shown, shownName end)
+    w:Update()
+
+    -- The page switched item and did not redraw the widget.
+    shown, shownName = ROBE, "Frostweave Robe"
+    Mock.list, Mock.total = {}, 0
+    click(w)
+    T.eq(#Mock.bought, 0, "nothing bought")
+    T.eq(#Mock.queries, 0, "nothing searched")
+    T.eq(statuses[#statuses], "Listing changed - check again")
+    T.eq(w.button:GetText(), "Buy it", "the widget caught up with the shown item")
+    T.ok(has(w.notice:GetText(), "RobeFlipper"), w.notice:GetText())
+    T.ok(has(w.notice:GetText(), "Listing changed - check again"))
+
+    -- Same item, but the rows were replaced without anyone telling the widget.
+    shown, shownName = BAG, BAG_NAME
+    w:Update()
+    statuses = {}
+    local fresh = ns.Listings.Normalize({
+      { count = 1, buyout = gold(50), seller = "Flipper", page = 0, index = 1 },
+      { count = 1, buyout = gold(420), seller = "Bob", page = 0, index = 2 },
+      { count = 1, buyout = gold(430), seller = "Carl", page = 0, index = 3 },
+    }, ns.Listings.MineSet(), ns.Listings.Ratio())
+    ns.Listings.cache[BAG] = { t = ns.Now(), rows = fresh }
+    Mock.list, Mock.total = Mock.ah.auctions, #Mock.ah.auctions
+    click(w)
+    T.eq(#Mock.bought, 0, "the row on screen is not the row that would be bought")
+    T.eq(statuses[#statuses], "Listing changed - check again")
+    -- Now what is shown is current: a click works.
+    click(w)
+    T.eq(#Mock.bought, 1)
+  end,
+
+  click_refuses_without_a_drawn_row = function(T)
+    local ns = setup()
+    local w = newWidget(ns)                      -- never drawn
+    click(w)
+    T.eq(#Mock.bought, 0)
+    T.eq(#Mock.queries, 0)
+  end,
+
+  page_status_carries_every_buy_message = function(T)
+    local ns = setup()
+    local statuses = {}
+    ns.On("PAGE_STATUS", function(msg) statuses[#statuses + 1] = msg end)
+
+    Mock.money = 1
+    local _, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(msg, "Not enough gold")
+    T.eq(statuses[#statuses], "Not enough gold")
+
+    Mock.money = gold(1000)
+    leavePage()
+    _, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(statuses[#statuses], "Finding it...")
+    answer(ns)
+
+    _, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(msg, "Bought for 50g")
+    T.eq(statuses[#statuses], "Bought for 50g")
+
+    _, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(msg, "Already bought")
+    T.eq(statuses[#statuses], "Already bought")
+    T.eq(#statuses, 4)
+  end,
+
+  page_status_for_gone_and_busy = function(T)
+    local ns = setup()
+    local statuses = {}
+    ns.On("PAGE_STATUS", function(msg) statuses[#statuses + 1] = msg end)
+    Mock.ah.auctions[1].buyout = gold(60)
+    leavePage()
+    ns.Flip.Buy(BAG, BAG_NAME)
+    answer(ns)
+    T.eq(statuses[#statuses], "That listing is gone.")
+    ns.Scanner.PriceCheck(ITEM)                  -- scanner busy
+    local ok, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(statuses[#statuses], msg)
+    T.ok(has(msg, "busy"))
+  end,
+
+  buy_needs_the_item_name = function(T)
+    local ns = setup()
+    local ok, msg = ns.Flip.Buy(BAG, nil)        -- cannot search or re-check without it
+    T.eq(ok, false)
+    T.ok(msg and msg ~= "")
+    T.eq(#Mock.bought, 0, "no bid we cannot follow up")
+    T.eq(#Mock.queries, 0)
   end,
 
   place_auction_bid_only_in_buy = function(T)

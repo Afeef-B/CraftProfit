@@ -1,10 +1,10 @@
 -- Flip buy: another seller's "mistake listing" (far below the market) is
 -- shown with a Buy button, and one click buys it out to resell.
 -- A purchase needs a click, so the bid is placed only by Flip.Buy, which only
--- the widget's button OnClick calls. Events (OnListUpdate) merely move the
--- state along: finding -> ready, or gone. Nothing is bought unless a row on
--- the loaded page matches the shown listing exactly (item, count, buyout,
--- seller).
+-- the widget's button OnClick calls. Events and Tick (OnListUpdate, Tick,
+-- Reset) merely move the state along; they never buy. Nothing is bought
+-- unless a row on the loaded page matches the shown listing exactly (item,
+-- count, buyout, seller).
 local addonName, ns = ...
 
 local floor = math.floor
@@ -16,10 +16,22 @@ local RED = "|cffff4040"
 local DEFAULT_CUT = 0.05
 local WIDTH, HEIGHT = 340, 68
 local BUTTON_WIDTH, BUTTON_HEIGHT = 170, 22
+local FIND_TIMEOUT = 10 -- seconds to wait for the page we asked for
+local LINK_WAIT = 2     -- seconds to wait for item links / seller names on it
 
--- track[id] = { state = "finding" | "ready" | "gone", row = <the flip row it is about> }.
--- A fresh price check replaces the rows, so an entry for an older row is void.
+local REFUSED_CHANGED = "Listing changed - check again"
+
+-- track[id] = { state, row, waited, linkWait, stale }: state is "finding" |
+-- "ready" | "gone" | "bought" and row is the flip row it is about. A fresh
+-- price check replaces the rows, so an entry for an older row is void.
+-- waited/linkWait/stale only matter while "finding": seconds since the search,
+-- seconds since a page with unreadable rows came in, and the fingerprint of
+-- the page we were looking at when we searched.
 local track = {}
+
+-- messages[id] = { row, state, text }: the last thing said about an item, shown
+-- on the notice while that row is still shown in that state.
+local messages = {}
 
 -- { row, next, profit } for the item's mistake listing, or nil.
 -- next is the price that marked it as a mistake (Listings.Summarize flipRef);
@@ -38,7 +50,7 @@ function Flip.Info(id)
   }
 end
 
--- "idle" | "finding" | "ready" | "gone"
+-- "idle" | "finding" | "ready" | "gone" | "bought"
 function Flip.State(id)
   local entry = track[id]
   local info = entry and Flip.Info(id)
@@ -46,9 +58,44 @@ function Flip.State(id)
   return "idle"
 end
 
-local function setState(id, row, state)
-  track[id] = { state = state, row = row }
+local function setState(id, row, state, extra)
+  local entry = { state = state, row = row, waited = 0 }
+  if extra then
+    for key, value in pairs(extra) do entry[key] = value end
+  end
+  track[id] = entry
   ns.Fire("FLIP_CHANGED", id)
+end
+
+-- Say something to the player: remembered for the notice while `row` is shown
+-- in `state`, and sent to the page's status line.
+local function say(id, row, state, text)
+  if id and row then messages[id] = { row = row, state = state, text = text } end
+  ns.Fire("PAGE_STATUS", text)
+end
+
+-- What was last said about the item's shown mistake listing, or nil.
+function Flip.Message(id)
+  local m = messages[id]
+  if not m then return nil end
+  local info = Flip.Info(id)
+  if info and info.row == m.row and Flip.State(id) == m.state then return m.text end
+  return nil
+end
+
+-- Fingerprint of the loaded "list" page, or nil for an empty one. The client
+-- can fire a late update for the page we just left; an identical page is not
+-- the answer to the search we sent. Names are left out: they load later.
+local function pagePrint()
+  local batch, total = GetNumAuctionItems("list")
+  if not batch or batch == 0 then return nil end
+  local _, _, firstCount, _, _, _, _, _, firstBuyout = GetAuctionItemInfo("list", 1)
+  local _, _, lastCount, _, _, _, _, _, lastBuyout = GetAuctionItemInfo("list", batch)
+  return table.concat({
+    batch, total or 0,
+    GetAuctionItemLink("list", 1) or "?", firstCount or 0, firstBuyout or 0,
+    GetAuctionItemLink("list", batch) or "?", lastCount or 0, lastBuyout or 0,
+  }, ":")
 end
 
 -- Index of the row on the loaded "list" page that is exactly `row` (same item,
@@ -77,57 +124,118 @@ local function loadFailure(err)
   return "Could not search the Auction House (" .. tostring(err) .. ")."
 end
 
+-- Every reply of Flip.Buy goes to the page status line as well.
+local function reply(id, row, state, ok, msg)
+  say(id, row, state, msg)
+  return ok, msg
+end
+
 -- Buy the shown mistake listing. ok, msg. Call only from a button OnClick.
 -- On the loaded page: buy it out and price-check the item again. Otherwise
 -- load the page the listing was seen on; the player clicks again once it is
 -- there (state "ready").
 function Flip.Buy(id, name)
   local info = Flip.Info(id)
-  if not info then return false, "No mistake listing to buy." end
+  if not info then return reply(id, nil, nil, false, "No mistake listing to buy.") end
   local row = info.row
-  if GetMoney() < row.buyout then return false, "Not enough gold" end
+  local state = Flip.State(id)
+  -- The bought row stays cached until the fresh price check replaces it; a
+  -- second click must not buy the next identical stack.
+  if state == "bought" then return reply(id, row, state, false, "Already bought") end
+  if GetMoney() < row.buyout then return reply(id, row, state, false, "Not enough gold") end
+  -- Without the name there is no search to load the page or re-check with.
+  if not name or name == "" then return reply(id, row, state, false, "Item name unknown.") end
 
   local index = findOnPage(id, row)
   if index then
     PlaceAuctionBid("list", index, row.buyout)
-    if track[id] then
+    setState(id, row, "bought")
+    ns.Scanner.PriceCheck({ id = id, name = name })
+    return reply(id, row, "bought", true, "Bought for " .. ns.Util.FormatMoney(row.buyout))
+  end
+
+  local stale = pagePrint() -- before the search replaces what the client shows
+  local ok, err = ns.Scanner.LoadPage(name, row.page)
+  if not ok then return reply(id, row, state, false, loadFailure(err)) end
+  setState(id, row, "finding", { stale = stale })
+  return reply(id, row, "finding", false, "Finding it...")
+end
+
+-- Decide about a "finding" entry from the page the client shows now. A page
+-- identical to the one we left is no answer. `force`: stop waiting for
+-- unreadable rows and decide from the readable ones.
+local function evaluate(id, entry, force)
+  local print = pagePrint()
+  if print and print == entry.stale then return end
+  local index, unreadable = findOnPage(id, entry.row)
+  if index then
+    setState(id, entry.row, "ready")
+  elseif force or not unreadable then
+    say(id, entry.row, "gone", "That listing is gone.")
+    setState(id, entry.row, "gone")
+  else
+    -- Names still loading; the client sends another update when they are.
+    entry.linkWait = entry.linkWait or 0
+  end
+end
+
+-- Ids whose search is still running.
+local function findingIds()
+  local ids = {}
+  for id, entry in pairs(track) do
+    if entry.state == "finding" then
+      if Flip.State(id) == "finding" then
+        ids[#ids + 1] = id
+      else
+        track[id] = nil -- the rows were replaced meanwhile
+      end
+    end
+  end
+  return ids
+end
+
+-- AUCTION_ITEM_LIST_UPDATE (routed by Core): a page arrived. Only moves
+-- "finding" on to "ready" or "gone"; never buys.
+function Flip.OnListUpdate()
+  for _, id in ipairs(findingIds()) do
+    evaluate(id, track[id], false)
+  end
+end
+
+-- Driven by Core's OnUpdate. A search that gets no answer in FIND_TIMEOUT
+-- seconds ends (the player can click again); a page that stays unreadable
+-- for LINK_WAIT seconds is judged by its readable rows. Never buys.
+function Flip.Tick(elapsed)
+  for _, id in ipairs(findingIds()) do
+    local entry = track[id]
+    entry.waited = entry.waited + elapsed
+    if entry.linkWait then
+      entry.linkWait = entry.linkWait + elapsed
+      if entry.linkWait >= LINK_WAIT then evaluate(id, entry, true) end
+    end
+    if track[id] == entry and entry.waited >= FIND_TIMEOUT then
+      say(id, entry.row, "idle", "Couldn't find it - try again")
       track[id] = nil
       ns.Fire("FLIP_CHANGED", id)
     end
-    ns.Scanner.PriceCheck({ id = id, name = name })
-    return true, "Bought for " .. ns.Util.FormatMoney(row.buyout)
   end
-
-  local ok, err = ns.Scanner.LoadPage(name, row.page)
-  if not ok then return false, loadFailure(err) end
-  setState(id, row, "finding")
-  return false, "Finding it..."
 end
 
--- AUCTION_ITEM_LIST_UPDATE (routed by Core): a page we asked for arrived.
--- Only moves "finding" to "ready" or "gone"; never buys.
-function Flip.OnListUpdate()
-  local finding = {}
-  for id in pairs(track) do
-    if Flip.State(id) == "finding" then finding[#finding + 1] = id end
-  end
-  for _, id in ipairs(finding) do
-    local entry = track[id]
-    local index, unreadable = findOnPage(id, entry.row)
-    if index then
-      setState(id, entry.row, "ready")
-    elseif not unreadable then
-      setState(id, entry.row, "gone")
-    end
-    -- else: names still loading; the client sends another update when they are.
-  end
+-- Forget every state, e.g. when the Auction House closes: no answer will come.
+function Flip.Reset()
+  local ids = {}
+  for id in pairs(track) do ids[#ids + 1] = id end
+  track, messages = {}, {}
+  for _, id in ipairs(ids) do ns.Fire("FLIP_CHANGED", id) end
 end
 
 local widgetCount = 0
 
 -- The red notice and Buy button for the item a page shows. getItem() returns
 -- id, name. Hidden while the item has no mistake listing. The reply to a
--- click ("Bought for ...", "Not enough gold", ...) is added to the notice.
+-- click ("Bought for ...", "Not enough gold", ...) is added to the notice
+-- (and sent as PAGE_STATUS). The page calls w:Update() when the shown item
+-- changes; a click only works on the listing that was drawn.
 -- Returns w with w.frame, w.notice, w.button and w:Update().
 function Flip.CreateWidget(parent, getItem)
   local Util = ns.Util
@@ -153,18 +261,19 @@ function Flip.CreateWidget(parent, getItem)
   button:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
   w.button = button
 
-  -- Reply to the last click; shown while the listing it was about is shown.
-  local message, messageRow
+  -- The listing on screen: a click may only act on exactly this.
+  local drawnId, drawnRow
 
   function w.Update(self)
     local id = getItem()
     local info = id and Flip.Info(id)
     if not info then
-      message, messageRow = nil, nil
+      drawnId, drawnRow = nil, nil
       frame:Hide()
       return
     end
     local row = info.row
+    drawnId, drawnRow = id, row
 
     local state = Flip.State(id)
     local label, enabled
@@ -173,7 +282,9 @@ function Flip.CreateWidget(parent, getItem)
     elseif state == "ready" then
       label, enabled = "Buy now (" .. Util.FormatMoney(row.buyout) .. ")", true
     elseif state == "gone" then
-      label, enabled = "That listing is gone.", false
+      label, enabled = "Gone - try again", true
+    elseif state == "bought" then
+      label, enabled = "Bought", false
     else
       label, enabled = "Buy it", true
     end
@@ -182,9 +293,8 @@ function Flip.CreateWidget(parent, getItem)
       .. " sells " .. row.count .. " at " .. Util.FormatMoney(row.unit)
       .. " (next " .. Util.FormatMoney(info.next) .. "). Flip profit ~"
       .. Util.FormatMoney(info.profit) .. "|r"
-    if message and messageRow == row and message ~= label then
-      text = text .. "\n" .. message
-    end
+    local message = Flip.Message(id)
+    if message and message ~= label then text = text .. "\n" .. message end
     notice:SetText(text)
 
     button:SetText(label)
@@ -194,10 +304,14 @@ function Flip.CreateWidget(parent, getItem)
 
   button:SetScript("OnClick", function()
     local id, name = getItem()
-    if not id then return end
-    local before = Flip.Info(id)
-    local _, msg = Flip.Buy(id, name)
-    message, messageRow = msg, before and before.row
+    local info = id and Flip.Info(id)
+    if not drawnRow or id ~= drawnId or not info or info.row ~= drawnRow then
+      -- What is on screen is not what a click would buy: show the real thing.
+      say(id, info and info.row, id and Flip.State(id), REFUSED_CHANGED)
+      w:Update()
+      return
+    end
+    Flip.Buy(id, name)
     w:Update()
   end)
 
