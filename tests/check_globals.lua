@@ -21,6 +21,9 @@ for name in ([[
   GetTradeSkillReagentInfo GetTradeSkillReagentItemLink
   NUM_AUCTION_ITEMS_PER_PAGE QueryAuctionItems CanSendAuctionQuery GetNumAuctionItems
   GetAuctionItemInfo GetAuctionItemLink
+  CreateFrame AuctionFrame GameTooltip FauxScrollFrame_Update FauxScrollFrame_GetOffset
+  FauxScrollFrame_OnVerticalScroll StaticPopupDialogs StaticPopup_Show
+  TradeSkillDetailScrollChildFrame TradeSkillSkillName
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
 local files = { ... }

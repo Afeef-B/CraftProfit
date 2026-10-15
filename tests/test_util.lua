@@ -16,6 +16,17 @@ return {
     T.eq(U.FormatMoney(1234.6), "12s 35c")
   end,
 
+  format_money_short = function(T)
+    local U = load().Util
+    T.eq(U.FormatMoneyShort(123456), "12g 34s")
+    T.eq(U.FormatMoneyShort(120056), "12g")
+    T.eq(U.FormatMoneyShort(520), "5s 20c")
+    T.eq(U.FormatMoneyShort(500), "5s")
+    T.eq(U.FormatMoneyShort(7), "7c")
+    T.eq(U.FormatMoneyShort(0), "0c")
+    T.eq(U.FormatMoneyShort(-15000), "-1g 50s")
+  end,
+
   parse_money = function(T)
     local U = load().Util
     T.eq(U.ParseMoney("1.5"), 15000)

@@ -123,6 +123,74 @@ function Mock.reset()
   end
 end
 
+-- Permissive widget mock: unknown methods are no-ops; the ones the UI reads
+-- back (text, shown, checked, enabled, scripts) are tracked.
+local FrameMethods = {}
+local FrameMeta = {}
+local function noop() end
+-- WoW widget methods are CamelCase; lowercase keys are plain data fields.
+FrameMeta.__index = function(_, key)
+  if FrameMethods[key] then return FrameMethods[key] end
+  if type(key) == "string" and key:match("^%u") then return noop end
+  return nil
+end
+
+local function newObject(name)
+  return setmetatable({ _name = name, _shown = true, _enabled = true, _scripts = {} }, FrameMeta)
+end
+Mock.newObject = newObject
+
+function FrameMethods.CreateFontString(_, name) return newObject(name) end
+function FrameMethods.CreateTexture(_, name) return newObject(name) end
+function FrameMethods.GetName(self) return self._name end
+function FrameMethods.Show(self) self._shown = true end
+function FrameMethods.Hide(self) self._shown = false end
+function FrameMethods.IsShown(self) return self._shown end
+function FrameMethods.SetShown(self, v) self._shown = v and true or false end
+function FrameMethods.SetScript(self, kind, fn) self._scripts[kind] = fn end
+function FrameMethods.GetScript(self, kind) return self._scripts[kind] end
+function FrameMethods.SetText(self, text) self._text = text end
+function FrameMethods.GetText(self) return self._text end
+function FrameMethods.SetFormattedText(self, fmt, ...) self._text = string.format(fmt, ...) end
+function FrameMethods.SetChecked(self, v) self._checked = v end
+function FrameMethods.GetChecked(self) return self._checked end
+function FrameMethods.Enable(self) self._enabled = true end
+function FrameMethods.Disable(self) self._enabled = false end
+function FrameMethods.IsEnabled(self) return self._enabled end
+function FrameMethods.SetTexture(self, tex) self._texture = tex end
+function FrameMethods.GetWidth() return 0 end
+function FrameMethods.GetHeight() return 0 end
+function FrameMethods.AddLine(self, text) table.insert(Mock.tooltip, text or "") end
+function FrameMethods.AddDoubleLine(self, left, right) table.insert(Mock.tooltip, (left or "") .. " | " .. (right or "")) end
+function FrameMethods.ClearLines() Mock.tooltip = {} end
+
+function Mock.installUI()
+  Mock.tooltip = {}
+  Mock.popup = nil
+  CreateFrame = function(kind, name, parent, template)
+    local f = newObject(name)
+    f._kind, f._parent, f._template = kind, parent, template
+    if name then
+      _G[name] = f
+      if template == "FauxScrollFrameTemplate" then _G[name .. "ScrollBar"] = newObject(name .. "ScrollBar") end
+      if template == "UICheckButtonTemplate" then _G[name .. "Text"] = newObject(name .. "Text") end
+    end
+    return f
+  end
+  UIParent = newObject("UIParent")
+  AuctionFrame = newObject("AuctionFrame")
+  TradeSkillFrame = newObject("TradeSkillFrame")
+  TradeSkillDetailScrollChildFrame = newObject("TradeSkillDetailScrollChildFrame")
+  TradeSkillSkillName = newObject("TradeSkillSkillName")
+  GameTooltip = newObject("GameTooltip")
+  TradeSkillFrame_SetSelection = function() end
+  FauxScrollFrame_Update = function() end
+  FauxScrollFrame_GetOffset = function(frame) return frame.offset end
+  FauxScrollFrame_OnVerticalScroll = function() end
+  StaticPopupDialogs = {}
+  StaticPopup_Show = function(which) Mock.popup = which end
+end
+
 -- Answer the last query, as the server would.
 function Mock.deliver(ns)
   if Mock.pending then

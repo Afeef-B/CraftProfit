@@ -45,6 +45,28 @@ function Util.FormatMoney(copper)
   return sign .. table.concat(parts, " ")
 end
 
+-- Compact form for table cells: gold+silver, or silver+copper below 1g.
+function Util.FormatMoneyShort(copper)
+  copper = floor(copper + 0.5)
+  local sign = ""
+  if copper < 0 then
+    sign = "-"
+    copper = -copper
+  end
+  local gold = floor(copper / 10000)
+  local silver = floor(copper / 100) % 100
+  local cop = copper % 100
+  local text
+  if gold > 0 then
+    text = gold .. "g" .. (silver > 0 and (" " .. silver .. "s") or "")
+  elseif silver > 0 then
+    text = silver .. "s" .. (cop > 0 and (" " .. cop .. "c") or "")
+  else
+    text = cop .. "c"
+  end
+  return sign .. text
+end
+
 -- "1.5" (gold) or "1g 50s 20c" -> copper; nil when unreadable.
 function Util.ParseMoney(str)
   if type(str) ~= "string" then return nil end
