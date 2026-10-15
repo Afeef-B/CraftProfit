@@ -98,7 +98,7 @@ local SETTLE = 1.5
 local window = { state = "closed" } -- closed | opening | ready
 
 function Recipes.WindowOpened()
-  window.state, window.quiet = "opening", 0
+  window.state, window.quiet, window.updates = "opening", 0, 0
 end
 
 function Recipes.WindowClosed()
@@ -107,11 +107,17 @@ function Recipes.WindowClosed()
 end
 
 function Recipes.NoteUpdate()
+  window.updates = (window.updates or 0) + 1
   if window.state == "opening" then window.quiet = 0 end
 end
 
 function Recipes.IsReady()
   return window.state == "ready"
+end
+
+-- For /cp status: state, seconds without updates, updates since opening.
+function Recipes.WindowStatus()
+  return window.state, window.quiet or 0, window.updates or 0
 end
 
 -- Background scan: one row per frame. Runs once per profession per session,

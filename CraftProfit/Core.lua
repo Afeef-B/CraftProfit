@@ -271,6 +271,44 @@ function commands.step()
   diagStep()
 end
 
+local function yesNo(value)
+  return value and "yes" or "no"
+end
+
+function commands.status()
+  local state, quiet, updates = ns.Recipes.WindowStatus()
+  if state == "closed" then
+    Util.Print("Profession window: closed")
+  elseif state == "opening" then
+    Util.Print(string.format("Profession window: opening (quiet %.1f s, %d updates since it opened)", quiet, updates))
+  else
+    Util.Print(string.format("Profession window: ready (%d updates since it opened)", updates))
+  end
+
+  local shown, visible, left, top = ns.UI.TrackButtonStatus()
+  if shown == nil then
+    Util.Print("Track checkbox: not created yet")
+  else
+    local where = ""
+    if left and top then where = string.format(", at x %d y %d", left, top) end
+    Util.Print("Track checkbox: created, shown " .. yesNo(shown) .. ", visible " .. yesNo(visible) .. where)
+  end
+
+  local index = GetTradeSkillSelectionIndex()
+  local id = ns.Recipes.SelectedProductID()
+  if id then
+    Util.Print(string.format("Selected recipe: row %d, item %d (%s)%s", index, id, itemName(id),
+      IsTradeSkillLinked() and ", linked profession" or ""))
+  else
+    Util.Print("Selected recipe: none (row " .. tostring(index) .. ")")
+  end
+
+  local known = 0
+  for _ in pairs(ns.Recipes.All()) do known = known + 1 end
+  Util.Print("Recipes known: " .. known .. ", tracked: " .. #ns.Recipes.TrackedIDs()
+    .. ", ElvUI: " .. yesNo(IsAddOnLoaded("ElvUI")))
+end
+
 function commands.list()
   Core.PrintList()
 end

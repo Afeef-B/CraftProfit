@@ -310,4 +310,26 @@ return {
     T.ok(CraftProfitTrackCheck, "normal mode builds the checkbox once settled")
     T.ok(not chatHas("diag "))
   end,
+
+  status_reports_window_and_checkbox_state = function(T)
+    local ns, Core = load()
+    Mock.trade.selected = 1
+    Core.Slash("status")
+    T.ok(chatHas("Profession window: closed"))
+    Core.OnEvent("TRADE_SKILL_SHOW")
+    Core.OnEvent("TRADE_SKILL_UPDATE")
+    Core.OnEvent("TRADE_SKILL_UPDATE")
+    Core.OnUpdate(nil, 0.4)
+    Mock.chat = {}
+    Core.Slash("status")
+    T.ok(chatHas("Profession window: opening (quiet 0.4 s, 2 updates since it opened)"))
+    T.ok(chatHas("Track checkbox: not created yet"))
+    Core.OnUpdate(nil, 1.6)
+    Mock.chat = {}
+    Core.Slash("status")
+    T.ok(chatHas("Profession window: ready (2 updates since it opened)"))
+    T.ok(chatHas("Track checkbox: created, shown yes, visible yes"))
+    T.ok(chatHas("Selected recipe: row 1, item 41599 (Frostweave Bag)"))
+    T.ok(chatHas("Recipes known: 1, tracked: 0"))
+  end,
 }

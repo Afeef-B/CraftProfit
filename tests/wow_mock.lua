@@ -148,6 +148,7 @@ function FrameMethods.GetName(self) return self._name end
 function FrameMethods.Show(self) self._shown = true end
 function FrameMethods.Hide(self) self._shown = false end
 function FrameMethods.IsShown(self) return self._shown end
+function FrameMethods.IsVisible(self) return self._shown end
 function FrameMethods.SetShown(self, v) self._shown = v and true or false end
 function FrameMethods.SetScript(self, kind, fn) self._scripts[kind] = fn end
 function FrameMethods.GetScript(self, kind) return self._scripts[kind] end

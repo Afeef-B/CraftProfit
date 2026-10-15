@@ -404,6 +404,12 @@ function UI.EnsureTrackButton()
   UI.UpdateTrackButton()
 end
 
+-- For /cp status: nil when not created, else shown, visible, left, top.
+function UI.TrackButtonStatus()
+  if not trackButton then return nil end
+  return trackButton:IsShown(), trackButton:IsVisible(), trackButton:GetLeft(), trackButton:GetTop()
+end
+
 function UI.HasPanel()
   return panel ~= nil
 end

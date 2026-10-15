@@ -85,6 +85,7 @@ it is 15%, so use `/cp cut 15` there.
 | `/cp reset prices` | Forget scanned AH prices for this realm and faction |
 | `/cp diag` | Diagnostic mode for the profession window: opening it runs none of CraftProfit's setup; each `/cp step` then runs one step, so a freeze points at the step you just ran |
 | `/cp step` | Run the next diagnostic step |
+| `/cp status` | Show the profession window state, the Track checkbox state and the selected recipe |
 
 ## In-game checklist (first run)
 
