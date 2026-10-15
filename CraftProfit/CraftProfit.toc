@@ -1,0 +1,15 @@
+## Interface: 30300
+## Title: CraftProfit
+## Notes: Scans the Auction House and shows whether your crafts make a profit.
+## Author: afefbes1
+## Version: 1.0.0
+## SavedVariables: CraftProfitDB
+## SavedVariablesPerCharacter: CraftProfitCharDB
+
+Util.lua
+Profit.lua
+Prices.lua
+Recipes.lua
+Scanner.lua
+UI.lua
+Core.lua
