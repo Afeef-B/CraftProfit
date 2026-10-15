@@ -14,6 +14,8 @@ for name in ([[
   getmetatable tonumber tostring type unpack xpcall math string table wipe
   time date strsplit hooksecurefunc
   GetRealmName UnitFactionGroup DEFAULT_CHAT_FRAME
+  GetItemInfo GetMerchantNumItems GetMerchantItemInfo GetMerchantItemLink
+  Auctionator Atr_GetAuctionBuyout
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
 local files = { ... }
