@@ -43,7 +43,7 @@ return {
     T.eq(#UI.rowsData, 2)
     T.eq(UI.rowsData[1].name, "Frostweave Bag")   -- profit 3000
     T.eq(UI.rowsData[2].name, "Frostweave Net")   -- no sell price
-    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag")
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (ready-made)")
     T.eq(UI.rows[1].profit:GetText(), "|cff40ff4030s|r")
     T.eq(UI.rows[1].margin:GetText(), "|cff40ff4046%|r")
     T.eq(UI.rows[2].profit:GetText(), "|cff808080?|r")
@@ -73,12 +73,37 @@ return {
     T.ok(tooltipHas("Missing prices: Frostweave Net"))
   end,
 
-  right_click_untracks = function(T)
+  right_click_menu_sets_depth_and_untracks = function(T)
     local ns, UI = load()
     ns.Recipes.SetTracked(BAG, true)
     UI.EnsurePanel()
     UI.Refresh()
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (ready-made)")
+
     UI.rows[1]:GetScript("OnClick")(UI.rows[1], "RightButton")
+    local menu = Mock.menu
+    T.ok(menu, "menu opened")
+    T.eq(#menu, 3)
+    T.eq(menu[1].text, "Ready-made materials")
+    T.eq(menu[2].text, "From scratch")
+    T.eq(menu[3].text, "Stop tracking")
+    T.eq(menu[1].checked, true)
+    T.ok(not menu[2].checked, "scratch not checked")
+    T.eq(Mock.menuAnchor, "cursor")
+
+    menu[2].func()
+    T.eq(ns.Recipes.Depth(BAG), "scratch")
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (from scratch)")
+
+    UI.rows[1]:GetScript("OnClick")(UI.rows[1], "RightButton")
+    T.ok(not Mock.menu[1].checked, "ready not checked")
+    T.eq(Mock.menu[2].checked, true)
+    Mock.menu[1].func()
+    T.eq(ns.Recipes.Depth(BAG), "ready")
+    T.eq(UI.rows[1].name:GetText(), "Frostweave Bag (ready-made)")
+
+    UI.rows[1]:GetScript("OnClick")(UI.rows[1], "RightButton")
+    Mock.menu[3].func()
     T.eq(ns.Recipes.IsTracked(BAG), false)
     T.eq(#UI.rowsData, 0)
   end,

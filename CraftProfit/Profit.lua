@@ -4,8 +4,12 @@
 --   recipes     = { [itemID] = { name, made, reagents = { {id, name, count}, ... } } },
 --   resolveBuy  = function(itemID, craftUnitCost) -> price, source, age
 --   resolveSell = function(itemID) -> price, source, age
+--   depth       = function(itemID) -> "ready" | "scratch"   (optional)
 --   cut         = 0.05,
 -- }
+-- "ready": the direct materials are priced as bought. "scratch" (also when
+-- ctx.depth is missing): each material is priced at the cheaper of buying or
+-- crafting it, all the way down.
 local addonName, ns = ...
 
 ns.Profit = {}
@@ -47,9 +51,11 @@ function Profit.Evaluate(id, ctx)
   }
   local visiting = { [id] = true }
   local cost = 0
+  local ready = ctx.depth ~= nil and ctx.depth(id) == "ready"
+  result.depth = ready and "ready" or "scratch"
 
   for _, reagent in ipairs(recipe.reagents) do
-    local craft = Profit.CraftUnitCost(reagent.id, ctx, visiting)
+    local craft = not ready and Profit.CraftUnitCost(reagent.id, ctx, visiting) or nil
     local unit, source, age = ctx.resolveBuy(reagent.id, craft)
     local line = {
       id = reagent.id, name = reagent.name, count = reagent.count,

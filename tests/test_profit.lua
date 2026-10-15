@@ -81,6 +81,45 @@ return {
     T.eq(r.cost, 10000)
   end,
 
+  ready_made_ignores_craft_option = function(T)
+    local P = load().Profit
+    local c = ctx({
+      recipes = {
+        [BAG] = { name = "Frostweave Bag", made = 1, reagents = { { id = BOLT, name = "Bolt of Frostweave", count = 2 } } },
+        [BOLT] = { name = "Bolt of Frostweave", made = 1, reagents = { { id = CLOTH, name = "Frostweave Cloth", count = 5 } } },
+      },
+      buy = { [BOLT] = 6000, [CLOTH] = 1000 },
+      sell = { [BAG] = 20000 },
+    })
+    c.depth = function() return "ready" end
+    local r = P.Evaluate(BAG, c)
+    T.eq(r.depth, "ready")
+    T.eq(r.lines[1].source, "ah")
+    T.eq(r.lines[1].unit, 6000)
+    T.eq(r.lines[1].saves, nil)
+    T.eq(r.cost, 12000)
+
+    c.depth = function() return "scratch" end
+    r = P.Evaluate(BAG, c)
+    T.eq(r.depth, "scratch")
+    T.eq(r.lines[1].source, "craft")
+    T.eq(r.cost, 10000)
+  end,
+
+  no_depth_in_context_behaves_as_scratch = function(T)
+    local P = load().Profit
+    local r = P.Evaluate(BAG, ctx({
+      recipes = {
+        [BAG] = { name = "Frostweave Bag", made = 1, reagents = { { id = BOLT, name = "Bolt of Frostweave", count = 2 } } },
+        [BOLT] = { name = "Bolt of Frostweave", made = 1, reagents = { { id = CLOTH, name = "Frostweave Cloth", count = 5 } } },
+      },
+      buy = { [BOLT] = 6000, [CLOTH] = 1000 },
+      sell = { [BAG] = 20000 },
+    }))
+    T.eq(r.depth, "scratch")
+    T.eq(r.lines[1].source, "craft")
+  end,
+
   buy_cheaper_than_craft = function(T)
     local P = load().Profit
     local r = P.Evaluate(BAG, ctx({

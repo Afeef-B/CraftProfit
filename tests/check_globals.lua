@@ -23,6 +23,7 @@ for name in ([[
   GetAuctionItemInfo GetAuctionItemLink
   CreateFrame AuctionFrame GameTooltip FauxScrollFrame_Update FauxScrollFrame_GetOffset
   FauxScrollFrame_OnVerticalScroll StaticPopupDialogs StaticPopup_Show
+  EasyMenu UIParent
   TradeSkillDetailScrollChildFrame TradeSkillSkillName SlashCmdList IsAddOnLoaded
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 

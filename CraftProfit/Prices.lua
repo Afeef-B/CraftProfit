@@ -126,6 +126,7 @@ function Prices.MakeContext()
     recipes = ns.Recipes.All(),
     resolveBuy = Prices.ResolveBuy,
     resolveSell = Prices.ResolveSell,
+    depth = ns.Recipes.Depth,
     cut = db.cut or 0.05,
   }
 end

@@ -11,6 +11,7 @@ local store
 function Recipes.SetDB(chardb)
   chardb.recipes = chardb.recipes or {}
   chardb.tracked = chardb.tracked or {}
+  chardb.depth = chardb.depth or {}
   store = chardb
 end
 
@@ -198,23 +199,47 @@ function Recipes.TrackedIDs()
   return ids
 end
 
--- Everything a scan needs to price the tracked crafts: the products, their
--- materials, and the materials of any material we can craft ourselves.
+-- How a tracked craft is costed: "ready" (default) buys the direct materials
+-- as they are; "scratch" also considers crafting every material we can make.
+function Recipes.Depth(id)
+  return store.depth[id] == "scratch" and "scratch" or "ready"
+end
+
+function Recipes.SetDepth(id, depth)
+  store.depth[id] = depth == "scratch" and "scratch" or nil
+  ns.Fire("TRACKING_CHANGED", id, true)
+end
+
+-- Everything a scan needs to price the tracked crafts: the products and
+-- their materials, plus, for crafts costed "from scratch", the materials of
+-- any material we can craft ourselves.
 function Recipes.ScanList()
-  local list, seen = {}, {}
+  local list, listed, expanded = {}, {}, {}
   local function add(id, name)
-    if seen[id] then return end
-    seen[id] = true
+    if listed[id] then return end
+    listed[id] = true
     name = name or GetItemInfo(id)
     if name then list[#list + 1] = { id = id, name = name } end
+  end
+  -- Everything id is made from, all the way down.
+  local function addTree(id)
+    if expanded[id] then return end
+    expanded[id] = true
     local recipe = store.recipes[id]
-    if recipe then
-      for _, reagent in ipairs(recipe.reagents) do add(reagent.id, reagent.name) end
+    if not recipe then return end
+    for _, reagent in ipairs(recipe.reagents) do
+      add(reagent.id, reagent.name)
+      addTree(reagent.id)
     end
   end
   for _, id in ipairs(Recipes.TrackedIDs()) do
     local recipe = store.recipes[id]
     add(id, recipe and recipe.name)
+    if Recipes.Depth(id) == "scratch" then
+      addTree(id)
+    elseif recipe then
+      for _, reagent in ipairs(recipe.reagents) do add(reagent.id, reagent.name) end
+    end
   end
   return list
 end

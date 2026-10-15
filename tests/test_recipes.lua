@@ -138,6 +138,8 @@ return {
     R.ReadTradeSkill()
     R.SetTracked(BAG, true)
     R.SetTracked(NET, true)
+    R.SetDepth(BAG, "scratch")
+    R.SetDepth(NET, "scratch")
     local list = R.ScanList()
     local seen = {}
     for _, item in ipairs(list) do
@@ -150,5 +152,70 @@ return {
     T.eq(seen[CLOTH], "Frostweave Cloth")
     T.eq(seen[THREAD], "Eternium Thread")
     T.eq(seen[NET], "Frostweave Net")
+  end,
+
+  depth_defaults_to_ready_and_persists = function(T)
+    local chardb = {}
+    local ns, R = load(chardb)
+    local got
+    ns.On("TRACKING_CHANGED", function(id, on) got = { id, on } end)
+    T.eq(R.Depth(BAG), "ready")
+    R.SetDepth(BAG, "scratch")
+    T.eq(R.Depth(BAG), "scratch")
+    T.eq(chardb.depth[BAG], "scratch")
+    T.eq(got[1], BAG); T.eq(got[2], true)
+    got = nil
+    R.SetDepth(BAG, "ready")
+    T.eq(R.Depth(BAG), "ready")
+    T.eq(chardb.depth[BAG], nil)
+    T.ok(got, "event fired again")
+  end,
+
+  scan_list_ready_made_is_shallow = function(T)
+    local _, R = load()
+    local BAG2, MOON, ORB, IMBUED, DUST = 41600, 41601, 41602, 41603, 41604
+    Mock.trade.rows = {
+      { name = "Glacial Bag", id = BAG2, reagents = {
+        { id = MOON, name = "Moonshroud", count = 3 }, { id = ORB, name = "Frozen Orb", count = 2 } } },
+      { name = "Moonshroud", id = MOON, reagents = { { id = IMBUED, name = "Imbued Frostweave", count = 1 } } },
+      { name = "Imbued Frostweave", id = IMBUED, reagents = {
+        { id = BOLT, name = "Bolt of Frostweave", count = 3 }, { id = DUST, name = "Infinite Dust", count = 2 } } },
+      boltRow(),
+    }
+    R.ReadTradeSkill()
+    R.SetTracked(BAG2, true)
+
+    local function ids()
+      local set, n = {}, 0
+      for _, item in ipairs(R.ScanList()) do set[item.id] = true; n = n + 1 end
+      return set, n
+    end
+
+    local set, n = ids()
+    T.eq(n, 3)
+    T.ok(set[BAG2] and set[MOON] and set[ORB], "bag, moonshroud, orb")
+
+    R.SetDepth(BAG2, "scratch")
+    set, n = ids()
+    T.eq(n, 7)
+    T.ok(set[BAG2] and set[MOON] and set[ORB] and set[IMBUED] and set[BOLT] and set[DUST] and set[CLOTH],
+      "whole tree")
+  end,
+
+  scan_list_mixed_depths_do_not_hide_each_other = function(T)
+    local _, R = load()
+    -- NET (ready) is listed before BAG (scratch) and shares the bolt with it.
+    Mock.trade.rows = {
+      { name = "Frostweave Net", id = NET, reagents = { { id = BOLT, name = "Bolt of Frostweave", count = 1 } } },
+      bagRow(), boltRow(),
+    }
+    R.ReadTradeSkill()
+    R.SetTracked(NET, true)
+    R.SetTracked(BAG, true)
+    R.SetDepth(BAG, "scratch")
+    local set = {}
+    for _, item in ipairs(R.ScanList()) do set[item.id] = true end
+    T.ok(set[NET] and set[BAG] and set[BOLT] and set[THREAD], "products and direct materials")
+    T.ok(set[CLOTH], "cloth reached through the scratch craft")
   end,
 }

@@ -198,6 +198,11 @@ function Mock.installUI()
   FauxScrollFrame_OnVerticalScroll = function() end
   StaticPopupDialogs = {}
   StaticPopup_Show = function(which) Mock.popup = which end
+  -- EasyMenu(menuList, menuFrame, anchor, x, y, displayMode): tests read Mock.menu.
+  Mock.menu, Mock.menuAnchor = nil, nil
+  EasyMenu = function(menuList, menuFrame, anchor)
+    Mock.menu, Mock.menuFrame, Mock.menuAnchor = menuList, menuFrame, anchor
+  end
   SlashCmdList = {}
   IsAddOnLoaded = function(name) return Mock.loadedAddOns and Mock.loadedAddOns[name] or nil end
   CraftProfitDB, CraftProfitCharDB = nil, nil

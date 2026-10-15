@@ -129,8 +129,9 @@ return {
   make_context = function(T)
     local db = { cut = 0.15 }
     local ns, P = load(db)
-    ns.Recipes = { All = function() return { marker = true } end }
+    ns.Recipes = { All = function() return { marker = true } end, Depth = function() return "ready" end }
     local ctx = P.MakeContext()
+    T.eq(ctx.depth, ns.Recipes.Depth)
     T.eq(ctx.cut, 0.15)
     T.eq(ctx.recipes.marker, true)
     T.eq(ctx.resolveBuy, P.ResolveBuy)

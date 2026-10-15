@@ -12,6 +12,7 @@ local WIDTH, HEIGHT = 400, 424
 local ROWS, ROW_HEIGHT = 14, 20
 local GOOD, BAD, GREY, WHITE = "|cff40ff40", "|cffff4040", "|cff808080", "|cffffffff"
 local SOURCE_LABEL = { ah = "AH", vendor = "vendor", craft = "craft", manual = "manual", atr = "Atr" }
+local DEPTH_SUFFIX = { ready = " (ready-made)", scratch = " (from scratch)" }
 local NOTHING_TRACKED = "Nothing tracked yet. Tick \"Track\" on a recipe in your profession window."
 
 local db
@@ -53,7 +54,7 @@ local function fillRow(row, result)
   row.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
   local name = result.name
   if result.made ~= 1 then name = name .. " x" .. result.made end
-  row.name:SetText(name)
+  row.name:SetText(name .. (DEPTH_SUFFIX[result.depth] or ""))
 
   local stale = anyStale(result)
   row.cost:SetText(moneyCell(result.cost, stale))
@@ -83,7 +84,7 @@ function UI.Update()
   end
   FauxScrollFrame_Update(scroll, #UI.rowsData, ROWS, ROW_HEIGHT)
   if #UI.rowsData == 0 then UI.emptyText:Show() else UI.emptyText:Hide() end
-  UI.footer:SetText("Right-click a row to stop tracking.  AH cut " .. floor((db.cut or 0.05) * 100 + 0.5) .. "%")
+  UI.footer:SetText("Right-click a row for options.  AH cut " .. floor((db.cut or 0.05) * 100 + 0.5) .. "%")
 end
 
 function UI.Refresh()
@@ -207,6 +208,22 @@ local COLUMNS = {
   { key = "margin", x = 328, width = 34,  justify = "RIGHT", title = "%" },
 }
 
+-- Right-click menu of a profit row: how to cost the craft, or stop tracking it.
+local rowMenu
+
+local function showRowMenu(result)
+  local id, depth = result.id, ns.Recipes.Depth(result.id)
+  rowMenu = rowMenu or CreateFrame("Frame", "CraftProfitRowMenu", UIParent, "UIDropDownMenuTemplate")
+  EasyMenu({
+    { text = "Ready-made materials", checked = depth == "ready",
+      func = function() ns.Recipes.SetDepth(id, "ready") end },
+    { text = "From scratch", checked = depth == "scratch",
+      func = function() ns.Recipes.SetDepth(id, "scratch") end },
+    { text = "Stop tracking", notCheckable = true,
+      func = function() ns.Recipes.SetTracked(id, false) end },
+  }, rowMenu, "cursor", 0, 0, "MENU")
+end
+
 local function createRow(i)
   local row = CreateFrame("Button", nil, panel)
   row:SetWidth(WIDTH - 50)
@@ -235,7 +252,7 @@ local function createRow(i)
   row:SetScript("OnClick", function(self, button)
     if button == "RightButton" and self.result then
       GameTooltip:Hide()
-      ns.Recipes.SetTracked(self.result.id, false)
+      showRowMenu(self.result)
     end
   end)
   row:Hide()
