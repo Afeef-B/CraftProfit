@@ -13,5 +13,6 @@ Recipes.lua
 Scanner.lua
 Listings.lua
 UI.lua
+ListingsUI.lua
 Tabs.lua
 Core.lua
