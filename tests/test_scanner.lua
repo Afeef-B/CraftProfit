@@ -8,13 +8,16 @@ local function load()
   local db = {}
   ns.Prices.SetDB(db, "Icecrown-Alliance")
   ns.Scanner.SetDB(db)
+  ns.Listings.SetDB(db, "Icecrown-Alliance", "Me")
   hooksecurefunc("QueryAuctionItems", ns.Scanner.OnQuery)
   return ns, ns.Scanner, ns.Prices, db
 end
 
-local function auction(id, name, count, buyout)
-  return { id = id, name = name, count = count, buyout = buyout }
+local function auction(id, name, count, buyout, seller)
+  return { id = id, name = name, count = count, buyout = buyout, seller = seller }
 end
+
+local function gold(g) return g * 10000 end
 
 local CLOTH_ITEM = { id = CLOTH, name = "Frostweave Cloth" }
 local THREAD_ITEM = { id = THREAD, name = "Eternium Thread" }
@@ -362,5 +365,302 @@ return {
     Mock.pump(ns)
     T.eq(#Mock.queries, 2)
     T.eq(select(3, P.GetAH(THREAD)), 0)
+  end,
+  collect_keeps_rows_with_sellers = function(T)
+    local ns, S = load()
+    local sellers = { "Bob", "Kim", "Me" }
+    local expected = {}
+    for i = 1, 55 do
+      expected[i] = sellers[i % 3 + 1]
+      Mock.ah.auctions[i] = auction(CLOTH, "Frostweave Cloth", 1, 10000 + i * 10, expected[i])
+    end
+    T.eq(S.StartTargeted({ CLOTH_ITEM }, { collect = true }), true)
+    T.ok(Mock.pump(ns), "scan finished")
+    T.eq(#Mock.queries, 2, "two pages")
+    local rows = ns.Listings.Get(CLOTH)
+    T.ok(rows, "rows stored")
+    T.eq(#rows, 55)
+    local mine = 0
+    for _, row in ipairs(rows) do
+      local k = row.page * 50 + row.index
+      T.eq(row.seller, expected[k], "seller of auction " .. k)
+      T.eq(row.mine, row.seller == "Me", "mine flag of auction " .. k)
+      T.eq(row.unit, 10000 + k * 10, "unit of auction " .. k)
+      if row.mine then mine = mine + 1 end
+    end
+    T.eq(mine, 18)
+    -- page and index point back into the results list
+    T.eq(rows[1].page, 0); T.eq(rows[1].index, 1)
+    T.eq(rows[55].page, 1); T.eq(rows[55].index, 5)
+  end,
+
+  collect_includes_rows_without_buyout = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob"),
+      auction(CLOTH, "Frostweave Cloth", 5, 0, "Me"),
+    }
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    Mock.pump(ns)
+    local rows = ns.Listings.Get(CLOTH)
+    T.eq(#rows, 2)
+    T.eq(rows[2].seller, "Me"); T.eq(rows[2].unit, 0); T.eq(rows[2].mine, true)
+    T.eq(select(3, ns.Prices.GetAH(CLOTH)), 1, "n counts buyout listings only")
+  end,
+
+  collect_stores_rows_per_item_without_mixing = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob"),
+      auction(THREAD, "Eternium Thread", 1, 300, "Kim"),
+      auction(THREAD, "Eternium Thread", 1, 310, "Me"),
+    }
+    S.StartTargeted({ CLOTH_ITEM, THREAD_ITEM }, { collect = true })
+    Mock.pump(ns)
+    T.eq(#ns.Listings.Get(CLOTH), 1)
+    T.eq(#ns.Listings.Get(THREAD), 2)
+  end,
+
+  collect_stores_rows_before_prices_change = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    local log = {}
+    ns.On("LISTINGS_UPDATED", function(id)
+      log[#log + 1] = "listings:" .. id .. ":price=" .. tostring((P.GetAH(id)))
+    end)
+    ns.On("PRICES_CHANGED", function()
+      log[#log + 1] = "prices:rows=" .. tostring(ns.Listings.Get(CLOTH) ~= nil)
+    end)
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    Mock.pump(ns)
+    T.eq(log[1], "listings:" .. CLOTH .. ":price=nil", "rows first, price not saved yet")
+    T.eq(log[2], "prices:rows=true")
+    T.eq(#log, 3, "final PRICES_CHANGED of the scan")
+  end,
+
+  collect_stored_price_ignores_mistake_listing = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, gold(50), "Bob"),
+      auction(CLOTH, "Frostweave Cloth", 1, gold(420), "Kim"),
+      auction(CLOTH, "Frostweave Cloth", 1, gold(425), "Ann"),
+    }
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    Mock.pump(ns)
+    local price, t, n = P.GetAH(CLOTH)
+    T.eq(price, 4200000); T.eq(t, Mock.now); T.eq(n, 3)
+    local rows = ns.Listings.Get(CLOTH)
+    T.eq(rows[1].seller, "Bob"); T.eq(rows[1].outlier, true, "mistake kept in the rows")
+  end,
+
+  collect_stored_price_includes_my_listing = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, gold(50), "Bob"),
+      auction(CLOTH, "Frostweave Cloth", 1, gold(400), "Me"),
+      auction(CLOTH, "Frostweave Cloth", 1, gold(420), "Kim"),
+      auction(CLOTH, "Frostweave Cloth", 1, gold(425), "Ann"),
+    }
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    Mock.pump(ns)
+    local price, _, n = P.GetAH(CLOTH)
+    T.eq(price, 4000000); T.eq(n, 4)
+  end,
+
+  collect_stored_price_none_without_buyouts = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 3, 0, "Bob") }
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    Mock.pump(ns)
+    local price, t, n = P.GetAH(CLOTH)
+    T.eq(price, nil); T.eq(t, Mock.now); T.eq(n, 0)
+    T.eq(#ns.Listings.Get(CLOTH), 1)
+  end,
+
+  collect_waits_for_owner_names = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob"),
+      auction(CLOTH, "Frostweave Cloth", 1, 1200, "Me"),
+    }
+    Mock.ah.nilOwners = true
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    S.Tick(0.1)
+    Mock.deliver(ns)                         -- first update: owner names missing
+    T.eq(ns.Listings.Get(CLOTH), nil, "not read while owners are missing")
+    T.eq(S.IsBusy(), true)
+    Mock.ah.nilOwners = false
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE") -- second update: names are there
+    T.eq(S.IsBusy(), false)
+    local rows = ns.Listings.Get(CLOTH)
+    T.eq(#rows, 2)
+    T.eq(rows[1].seller, "Bob"); T.eq(rows[1].mine, false)
+    T.eq(rows[2].seller, "Me"); T.eq(rows[2].mine, true)
+    T.eq((P.GetAH(CLOTH)), 1000)
+  end,
+
+  collect_forced_read_when_owners_stay_missing = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    Mock.ah.nilOwners = true
+    S.StartTargeted({ CLOTH_ITEM }, { collect = true })
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    for _ = 1, 21 do S.Tick(0.1) end
+    T.eq(S.IsBusy(), false, "read after the 2 s wait")
+    local rows = ns.Listings.Get(CLOTH)
+    T.eq(#rows, 1)
+    T.eq(rows[1].seller, nil); T.eq(rows[1].mine, false)
+  end,
+
+  no_collect_ignores_missing_owners = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    Mock.ah.nilOwners = true
+    S.StartTargeted({ CLOTH_ITEM })
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    T.eq(S.IsBusy(), false, "owner names do not matter without collect")
+    T.eq((P.GetAH(CLOTH)), 1000)
+  end,
+
+  no_collect_stores_nothing = function(T)
+    local ns, S = load()
+    local updates = 0
+    ns.On("LISTINGS_UPDATED", function() updates = updates + 1 end)
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    S.StartTargeted({ CLOTH_ITEM })
+    Mock.pump(ns)
+    T.eq(ns.Listings.Get(CLOTH), nil)
+    T.eq(updates, 0)
+    S.StartTargeted({ CLOTH_ITEM }, {})
+    Mock.pump(ns)
+    T.eq(ns.Listings.Get(CLOTH), nil, "empty opts: still no collect")
+    S.StartScanAll()
+    Mock.pump(ns)
+    T.eq(ns.Listings.Get(CLOTH), nil, "Scan All stores no rows")
+    T.eq(updates, 0)
+  end,
+
+  load_page_sends_one_query = function(T)
+    local ns, S = load()
+    local sendingDuring
+    local orig = QueryAuctionItems
+    QueryAuctionItems = function(...)
+      sendingDuring = S.sending
+      return orig(...)
+    end
+    local ok, err = S.LoadPage("Frostweave Cloth", 2)
+    T.eq(ok, true); T.eq(err, nil)
+    T.eq(#Mock.queries, 1)
+    local q = Mock.queries[1]
+    T.eq(q.n, 10)
+    T.eq(q[1], "Frostweave Cloth"); T.eq(q[2], ""); T.eq(q[3], "")
+    T.eq(q[4], nil); T.eq(q[5], nil); T.eq(q[6], nil)
+    T.eq(q[7], 2); T.eq(q[8], nil); T.eq(q[9], -1); T.eq(q[10], false)
+    T.eq(sendingDuring, true, "flagged as our own query while sending")
+    T.eq(S.sending, false)
+    T.eq(S.IsBusy(), false, "the scanner stays idle")
+    -- the results are not read by the scanner
+    Mock.deliver(ns)
+    T.eq(S.IsBusy(), false)
+    T.eq(#Mock.queries, 1)
+  end,
+
+  load_page_rejects_busy_and_throttled = function(T)
+    local ns, S = load()
+    Mock.ah.canQuery = false
+    local ok, err = S.LoadPage("Frostweave Cloth", 0)
+    T.eq(ok, false); T.eq(err, "throttled")
+    T.eq(#Mock.queries, 0)
+    Mock.ah.canQuery = true
+    S.StartTargeted({ CLOTH_ITEM })
+    ok, err = S.LoadPage("Frostweave Cloth", 0)
+    T.eq(ok, false); T.eq(err, "busy")
+    T.eq(#Mock.queries, 0)
+    T.eq(S.IsBusy(), true, "the running scan is untouched")
+  end,
+
+  price_check_wraps_single_item = function(T)
+    local ns, S, P = load()
+    local statuses = {}
+    ns.On("SCAN_STATUS", function(text) statuses[#statuses + 1] = text end)
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob"),
+      auction(THREAD, "Eternium Thread", 1, 300, "Kim"),
+    }
+    T.eq(S.PriceCheck(CLOTH_ITEM), true)
+    local ok, err = S.PriceCheck(THREAD_ITEM)
+    T.eq(ok, false); T.eq(err, "busy")
+    T.ok(Mock.pump(ns), "finished")
+    T.eq(#Mock.queries, 1, "one item only")
+    T.eq(statuses[1], "Scanning 1/1: Frostweave Cloth")
+    T.eq(#ns.Listings.Get(CLOTH), 1)
+    T.eq((P.GetAH(CLOTH)), 1000)
+    T.eq(ns.Listings.Get(THREAD), nil)
+  end,
+
+  scan_finished_fires_on_done_and_stop = function(T)
+    local ns, S = load()
+    local finished, busyWhenFired = 0, nil
+    ns.On("SCAN_FINISHED", function()
+      finished = finished + 1
+      busyWhenFired = S.IsBusy()
+    end)
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob"), auction(THREAD, "Eternium Thread", 1, 300, "Kim") }
+
+    -- targeted scan done
+    S.StartTargeted({ CLOTH_ITEM, THREAD_ITEM })
+    S.Tick(0.1); Mock.deliver(ns)
+    T.eq(finished, 0, "not after the first of two items")
+    Mock.pump(ns)
+    T.eq(finished, 1); T.eq(busyWhenFired, false, "already idle when it fires")
+
+    -- price check done
+    S.PriceCheck(CLOTH_ITEM)
+    Mock.pump(ns)
+    T.eq(finished, 2)
+
+    -- stopped by the player
+    S.StartTargeted({ CLOTH_ITEM, THREAD_ITEM })
+    S.Tick(0.1)
+    S.Stop("stopped")
+    T.eq(finished, 3); T.eq(busyWhenFired, false)
+
+    -- stopped by the AH closing
+    S.StartTargeted({ CLOTH_ITEM })
+    S.HandleEvent("AUCTION_HOUSE_CLOSED")
+    T.eq(finished, 4)
+
+    -- stopped by a foreign query during Scan All
+    S.StartScanAll()
+    S.Tick(0.1)
+    QueryAuctionItems("Runecloth", "", "", nil, nil, nil, 0, nil, -1)
+    T.eq(finished, 5)
+
+    -- Scan All stopped by the player
+    S.StartScanAll()
+    S.Stop("stopped")
+    T.eq(finished, 6)
+
+    -- Scan All done
+    S.StartScanAll()
+    Mock.pump(ns)
+    T.eq(finished, 7); T.eq(busyWhenFired, false)
+
+    -- Stop while idle changes nothing
+    S.Stop("stopped")
+    T.eq(finished, 7)
+  end,
+
+  scan_finished_fires_after_error_stop = function(T)
+    local ns, S = load()
+    local finished = 0
+    ns.On("SCAN_FINISHED", function() finished = finished + 1 end)
+    S.StartTargeted({ CLOTH_ITEM })
+    QueryAuctionItems = function() error("boom") end
+    S.Tick(0.1)
+    T.eq(S.IsBusy(), false)
+    T.eq(finished, 1)
   end,
 }

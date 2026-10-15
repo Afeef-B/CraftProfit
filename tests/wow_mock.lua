@@ -11,6 +11,8 @@ function Mock.reset()
 
   time = function() return Mock.now end
   GetRealmName = function() return "Icecrown" end
+  Mock.playerName = "Me"
+  UnitName = function() return Mock.playerName or "Me" end
   UnitFactionGroup = function() return "Alliance" end
   hooksecurefunc = function(name, fn)
     local orig = _G[name]
@@ -77,9 +79,11 @@ function Mock.reset()
     local r = Mock.trade.rows[i].reagents[j]
     return r.name, "tex", r.count, 0
   end
-  -- Auction House: Mock.ah.auctions = { {id, name, count, buyout} }.
+  -- Auction House: Mock.ah.auctions = { {id, name, count, buyout, seller?} }
+  -- (seller defaults to "Seller"; Mock.ah.nilOwners hides every owner name, as
+  -- the client does while names are still loading).
   -- QueryAuctionItems fills the "list" view; tests deliver the event.
-  Mock.ah = { auctions = {}, canQuery = true, canQueryAll = true, nilLinks = false }
+  Mock.ah = { auctions = {}, canQuery = true, canQueryAll = true, nilLinks = false, nilOwners = false }
   Mock.queries = {}
   Mock.pending = false
   Mock.list, Mock.total = {}, 0
@@ -108,7 +112,9 @@ function Mock.reset()
   GetNumAuctionItems = function(kind) return #Mock.list, Mock.total end
   GetAuctionItemInfo = function(kind, i)
     local a = Mock.list[i]
-    return a.name, "tex", a.count, 1, 1, 80, 1, 0, a.buyout, 0, nil, "Seller"
+    local owner = nil
+    if not Mock.ah.nilOwners then owner = a.seller or "Seller" end
+    return a.name, "tex", a.count, 1, 1, 80, 1, 0, a.buyout, 0, nil, owner
   end
   GetAuctionItemLink = function(kind, i)
     local a = Mock.list[i]

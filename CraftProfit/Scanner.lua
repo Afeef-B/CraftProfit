@@ -44,12 +44,35 @@ local function announceItem()
   setStatus("Scanning " .. job.index .. "/" .. #job.items .. ": " .. item.name)
 end
 
-function Scanner.StartTargeted(items)
+-- opts.collect: also keep every listing of the item (count, buyout, seller,
+-- page, index) and hand the rows to ns.Listings.
+function Scanner.StartTargeted(items, opts)
   if state ~= "idle" then return false, "busy" end
   if not items or #items == 0 then return false, "empty" end
   job = { items = items, index = 1, page = 0, n = 0, retries = 0 }
+  if opts and opts.collect then
+    job.collect = true
+    job.raw = {}
+  end
   state = "send"
   announceItem()
+  return true
+end
+
+-- Search one item by itself and keep all its listings.
+function Scanner.PriceCheck(item)
+  return Scanner.StartTargeted({ item }, { collect = true })
+end
+
+-- Ask the AH for one results page of a name search so the player can act on
+-- it. Not a scan: the scanner stays idle and never reads the answer.
+function Scanner.LoadPage(name, page)
+  if state ~= "idle" then return false, "busy" end
+  if not CanSendAuctionQuery() then return false, "throttled" end
+  Scanner.sending = true
+  local ok, err = pcall(QueryAuctionItems, name, "", "", nil, nil, nil, page, nil, -1, false)
+  Scanner.sending = false
+  if not ok then return false, "error: " .. tostring(err) end
   return true
 end
 
@@ -58,12 +81,14 @@ function Scanner.Stop(reason)
   if job.all then
     state, job = "idle", nil
     setStatus("Scan All stopped (" .. reason .. ")")
+    ns.Fire("SCAN_FINISHED")
     return
   end
   local done = job and (job.index - 1) or 0
   local total = job and #job.items or 0
   state, job = "idle", nil
   setStatus("Scan stopped (" .. reason .. "): " .. done .. "/" .. total .. " done")
+  ns.Fire("SCAN_FINISHED")
 end
 
 local function sendQuery()
@@ -82,11 +107,13 @@ end
 local function nextItem()
   job.index = job.index + 1
   job.page, job.best, job.n, job.retries = 0, nil, 0, 0
+  if job.collect then job.raw = {} end
   if job.index > #job.items then
     local count = #job.items
     state, job = "idle", nil
     setStatus("Scan done: " .. count .. " items")
     ns.Fire("PRICES_CHANGED")
+    ns.Fire("SCAN_FINISHED")
   else
     state = "send"
     announceItem()
@@ -96,6 +123,18 @@ end
 local function finishItem()
   local item = job.items[job.index]
   local unit = job.best and floor(job.best + 0.5) or nil
+  if job.collect then
+    local rows = ns.Listings.Normalize(job.raw, ns.Listings.MineSet(), ns.Listings.Ratio())
+    -- Rows first: whoever hears about the new price can already read them.
+    ns.Listings.Store(item.id, rows)
+    -- A mistake listing must not become the stored price; any other seller
+    -- counts, mine included. Rows without a buyout have unit 0.
+    unit = nil
+    for i = 1, #rows do
+      local row = rows[i]
+      if row.unit > 0 and not row.outlier and (not unit or row.unit < unit) then unit = row.unit end
+    end
+  end
   ns.Prices.SetAH(item.id, unit, job.n, ns.Now())
   ns.Fire("PRICES_CHANGED")
   nextItem()
@@ -104,6 +143,14 @@ end
 local function allLinksReady(batch)
   for i = 1, batch do
     if not GetAuctionItemLink("list", i) then return false end
+  end
+  return true
+end
+
+-- Seller names load like item links do: nil until the client has them.
+local function allOwnersReady(batch)
+  for i = 1, batch do
+    if not select(12, GetAuctionItemInfo("list", i)) then return false end
   end
   return true
 end
@@ -125,7 +172,7 @@ local function readPage(force)
   local batch, total = GetNumAuctionItems("list")
   local fingerprint = pagePrint(batch, total)
   if not force and fingerprint and fingerprint == lastPrint then return end
-  if not force and not allLinksReady(batch) then
+  if not force and (not allLinksReady(batch) or (job.collect and not allOwnersReady(batch))) then
     job.linkWait = job.linkWait or 0
     return
   end
@@ -134,7 +181,12 @@ local function readPage(force)
   local target = job.items[job.index].id
   for i = 1, batch do
     if ns.Util.ItemIDFromLink(GetAuctionItemLink("list", i)) == target then
-      local _, _, count, _, _, _, _, _, buyout = GetAuctionItemInfo("list", i)
+      local _, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
+      if job.collect then
+        job.raw[#job.raw + 1] = {
+          count = count, buyout = buyout, seller = owner, page = job.page, index = i,
+        }
+      end
       if buyout and buyout > 0 and count and count > 0 then
         local unit = buyout / count
         if not job.best or unit < job.best then job.best = unit end
@@ -206,6 +258,7 @@ local function finishScanAll()
   state, job = "idle", nil
   setStatus(text)
   ns.Fire("PRICES_CHANGED")
+  ns.Fire("SCAN_FINISHED")
 end
 
 local function readScanAllChunk()

@@ -13,7 +13,7 @@ for name in ([[
   _G assert error ipairs next pairs pcall print rawget rawset select setmetatable
   getmetatable tonumber tostring type unpack xpcall math string table wipe
   time date strsplit hooksecurefunc
-  GetRealmName UnitFactionGroup DEFAULT_CHAT_FRAME
+  GetRealmName UnitFactionGroup UnitName DEFAULT_CHAT_FRAME
   GetItemInfo GetMerchantNumItems GetMerchantItemInfo GetMerchantItemLink
   Auctionator Atr_GetAuctionBuyout
   GetTradeSkillLine IsTradeSkillLinked GetNumTradeSkills GetTradeSkillSelectionIndex
