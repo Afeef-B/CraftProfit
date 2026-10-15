@@ -23,8 +23,10 @@ local state = "idle"   -- idle | send | wait | allSend | allWait | allRead
 local job
 -- Fingerprint of the last results page we read. The client can fire a late
 -- AUCTION_ITEM_LIST_UPDATE for that page after our next search went out;
--- an identical page is then not the answer to the new search.
-local lastPrint
+-- an identical page is then not the answer to the new search. lastKey names
+-- the search ("name:page") that page answered: the same search sent again
+-- legitimately gets an identical page back.
+local lastPrint, lastKey
 
 function Scanner.SetDB(savedDB)
   db = savedDB
@@ -102,6 +104,7 @@ local function sendQuery()
   end
   state = "wait"
   job.waited, job.linkWait = 0, nil
+  job.queryKey = item.name .. ":" .. job.page
 end
 
 local function nextItem()
@@ -171,13 +174,13 @@ end
 local function readPage(force)
   local batch, total = GetNumAuctionItems("list")
   local fingerprint = pagePrint(batch, total)
-  if not force and fingerprint and fingerprint == lastPrint then return end
+  if not force and fingerprint and fingerprint == lastPrint and job.queryKey ~= lastKey then return end
   if not force and (not allLinksReady(batch) or (job.collect and not allOwnersReady(batch))) then
     job.linkWait = job.linkWait or 0
     return
   end
 
-  lastPrint = fingerprint
+  lastPrint, lastKey = fingerprint, job.queryKey
   local target = job.items[job.index].id
   for i = 1, batch do
     if ns.Util.ItemIDFromLink(GetAuctionItemLink("list", i)) == target then

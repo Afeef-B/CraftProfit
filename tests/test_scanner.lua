@@ -663,4 +663,53 @@ return {
     T.eq(S.IsBusy(), false)
     T.eq(finished, 1)
   end,
+  repeat_price_check_is_immediate = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    T.eq(S.PriceCheck(CLOTH_ITEM), true)
+    T.ok(Mock.pump(ns), "first check finished")
+    T.eq(#Mock.queries, 1)
+    -- Same unchanged search again: the identical page is the real answer.
+    T.eq(S.PriceCheck(CLOTH_ITEM), true)
+    S.Tick(0.1)                             -- query out
+    Mock.deliver(ns)                        -- first answer
+    T.eq(S.IsBusy(), false, "read on the first answer, no timeout")
+    T.eq(#Mock.queries, 2, "no retry")
+    T.eq(#ns.Listings.Get(CLOTH), 1)
+    T.eq((P.GetAH(CLOTH)), 1000)
+  end,
+
+  repeat_price_check_after_load_page_is_immediate = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob"),
+      auction(THREAD, "Eternium Thread", 1, 300, "Kim"),
+    }
+    S.PriceCheck(CLOTH_ITEM)
+    Mock.pump(ns)
+    T.eq(S.LoadPage("Eternium Thread", 0), true)  -- not read by the scanner
+    Mock.deliver(ns)
+    S.PriceCheck(CLOTH_ITEM)
+    S.Tick(0.1); Mock.deliver(ns)
+    T.eq(S.IsBusy(), false, "read on the first answer")
+    T.eq(#Mock.queries, 3, "check, load page, check: no retry")
+  end,
+
+  late_update_for_previous_page_ignored = function(T)
+    local ns, S, P = load()
+    for i = 1, 60 do Mock.ah.auctions[i] = auction(CLOTH, "Frostweave Cloth", 1, 1000 + i, "Bob") end
+    S.StartTargeted({ CLOTH_ITEM })
+    S.Tick(0.1); Mock.deliver(ns)               -- page 0 read
+    local page0List, page0Total = Mock.list, Mock.total
+    S.Tick(0.1)                                 -- page 1 query sent
+    local page1List, page1Total = Mock.list, Mock.total
+    Mock.pending = false
+    Mock.list, Mock.total = page0List, page0Total
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")   -- late update of page 0
+    T.eq(S.IsBusy(), true, "page 0 not read again as page 1")
+    Mock.list, Mock.total = page1List, page1Total
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    T.eq(S.IsBusy(), false)
+    T.eq(select(3, P.GetAH(CLOTH)), 60)
+  end,
 }
