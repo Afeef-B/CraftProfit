@@ -226,10 +226,11 @@ return {
     T.ok(s.flip, "cheapest outlier")
     T.eq(s.flip.seller, "Flipper"); T.eq(s.flip.unit, g(50))
     T.eq(s.flip.page, 0); T.eq(s.flip.index, 1)
+    T.eq(s.flipRef, g(420), "next other seller's price")
 
     s = L.Summarize({})
     T.eq(s.lowestOther, nil); T.eq(s.lowestOtherSeller, nil)
-    T.eq(s.lowestMine, nil); T.eq(s.mineCount, 0); T.eq(s.flip, nil)
+    T.eq(s.lowestMine, nil); T.eq(s.mineCount, 0); T.eq(s.flip, nil); T.eq(s.flipRef, nil)
 
     -- only bid-only rows from others.
     s = L.Summarize(L.Normalize({ raw(1, 0, "Bob") }, {}, 0.5))
@@ -331,6 +332,7 @@ return {
     local s = L.Summarize(rows)
     T.eq(s.flip, rows[1])
     T.eq(s.flip.page, 1); T.eq(s.flip.index, 4)
+    T.eq(s.flipRef, 4200000, "our listing is the reference")
     T.eq(s.lowestOther, nil)
     local st, diff, who = L.Status(rows)
     T.eq(st, "cheapest"); T.eq(diff, nil); T.eq(who, nil)
@@ -343,6 +345,7 @@ return {
       raw(1, g(10), "Me"), raw(1, g(50), "Flipper"), raw(1, g(420), "Twink"), raw(1, g(900), "Me"),
     }, { Me = true, Twink = true }, 0.5)
     T.eq(rows[2].seller, "Flipper"); T.eq(rows[2].outlier, true)
+    T.eq(L.Summarize(rows).flipRef, g(420), "cheapest of ours above the flip")
     -- a bid-only listing of ours is no reference.
     rows = L.Normalize({ raw(1, g(50), "Flipper"), raw(1, 0, "Me") }, mine, 0.5)
     T.eq(rows[1].outlier, false)
@@ -352,6 +355,7 @@ return {
     -- the setting applies: ratio 0.1 makes 50g vs 420g competition again.
     rows = L.Normalize({ raw(1, g(50), "Flipper"), raw(1, g(420), "Me") }, mine, 0.1)
     T.eq(rows[1].outlier, false)
+    T.eq(L.Summarize(rows).flipRef, nil, "no flip, no reference")
   end,
 
   lone_cheap_seller_not_outlier = function(T)
@@ -364,17 +368,58 @@ return {
     T.eq((L.Status(rows)), "undercut")
   end,
 
-  two_outliers_before_own_listing = function(T)
+  two_cheap_sellers_are_market_not_mistakes = function(T)
+    -- With two other sellers our own listing is never the reference, so a
+    -- double mistake in front of our listing is accepted as the market.
     local _, L = load()
     local rows = L.Normalize({
       raw(1, g(50), "Bob"), raw(1, g(60), "Kim"), raw(1, g(420), "Me"),
     }, { Me = true }, 0.5)
-    T.eq(rows[1].seller, "Bob"); T.eq(rows[1].outlier, true)
-    T.eq(rows[2].seller, "Kim"); T.eq(rows[2].outlier, true)
-    T.eq(rows[3].seller, "Me"); T.eq(rows[3].outlier, false)
-    T.eq(L.Summarize(rows).flip.seller, "Bob")
+    for i = 1, 3 do T.eq(rows[i].outlier, false, "row " .. i) end
+    local s = L.Summarize(rows)
+    T.eq(s.flip, nil); T.eq(s.flipRef, nil)
+    T.eq(s.lowestOther, g(50))
     local p, why = L.UndercutPrice(rows, 123)
-    T.eq(p, 4200000); T.eq(why, "match-own")
+    T.eq(p, 499900); T.eq(why, "undercut")
+  end,
+
+  overpriced_own_listing_keeps_market = function(T)
+    local _, L = load()
+    local rows = L.Normalize({
+      raw(1, g(800), "Me"), raw(1, g(300), "Bob"), raw(1, g(310), "Cara"),
+    }, { Me = true }, 0.5)
+    T.eq(rows[1].seller, "Bob"); T.eq(rows[1].outlier, false)
+    T.eq(rows[2].seller, "Cara"); T.eq(rows[2].outlier, false)
+    T.eq(rows[3].seller, "Me"); T.eq(rows[3].outlier, false)
+    T.eq(L.Summarize(rows).flip, nil)
+    local p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, 2999900); T.eq(why, "undercut")
+    T.eq((L.Status(rows)), "undercut")
+  end,
+
+  flip_ref_is_the_rule_reference = function(T)
+    local _, L = load()
+    -- plain rule, two other sellers: Bob is an outlier against Kim.
+    local rows = L.Normalize({ raw(1, g(50), "Bob"), raw(1, g(420), "Kim") }, {}, 0.5)
+    T.eq(rows[1].outlier, true); T.eq(rows[2].outlier, false)
+    local s = L.Summarize(rows)
+    T.eq(s.flip.seller, "Bob"); T.eq(s.flipRef, g(420))
+    local p, why = L.UndercutPrice(rows, 123)
+    T.eq(p, g(419, 99)); T.eq(why, "undercut")
+
+    -- the reference is the row after the marked rows, whatever our listing says.
+    rows = L.Normalize({
+      raw(1, g(50), "Bob"), raw(1, g(60), "Kim"), raw(1, g(420), "Cara"),
+      raw(1, g(425), "Dan"), raw(1, g(430), "Me"),
+    }, { Me = true }, 0.5)
+    T.eq(rows[1].outlier, true); T.eq(rows[2].outlier, true); T.eq(rows[3].outlier, false)
+    s = L.Summarize(rows)
+    T.eq(s.flip.seller, "Bob"); T.eq(s.flipRef, g(420))
+
+    -- an unmarked listing has no reference.
+    rows = L.Normalize({ raw(1, g(300), "Bob"), raw(1, g(420), "Kim") }, {}, 0.5)
+    T.eq(L.Summarize(rows).flipRef, nil)
+    T.eq(L.Summarize({}).flipRef, nil)
   end,
 
   no_others_only_mine_matches_own = function(T)

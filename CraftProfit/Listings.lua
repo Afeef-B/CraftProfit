@@ -40,6 +40,18 @@ local function hasBuyout(row)
   return (row.unit or 0) > 0
 end
 
+-- Cheapest priced listing of ours that costs more than `unit`, or nil.
+local function cheapestMineAbove(rows, unit)
+  local best
+  for i = 1, #rows do
+    local row = rows[i]
+    if row.mine and hasBuyout(row) and row.unit > unit and (not best or row.unit < best) then
+      best = row.unit
+    end
+  end
+  return best
+end
+
 -- raw rows { count, buyout, seller, page, index } -> sorted rows with
 -- unit, mine and outlier added. The raw rows are left alone.
 function Listings.Normalize(raw, mineSet, ratio)
@@ -75,28 +87,23 @@ function Listings.Normalize(raw, mineSet, ratio)
   end)
 
   -- Mistake listings: among other sellers' priced rows o1..on, the largest
-  -- i <= 3 whose unit is under ratio * its reference marks rows 1..i. The
-  -- reference is o(i+1); for the last other seller's row it is the cheapest
-  -- priced listing of ours above it (none: no reference, not a mistake).
+  -- i <= 3 (and < n) whose unit is under ratio * o(i+1) marks rows 1..i.
+  -- With exactly one other seller there is no o(i+1); then our cheapest
+  -- priced listing above it is the reference (none: not a mistake).
   local others = {}
   for i = 1, #rows do
     local row = rows[i]
     if not row.mine and hasBuyout(row) then others[#others + 1] = row end
   end
-  for i = math.min(MAX_OUTLIER_ROWS, #others), 1, -1 do
-    local reference = others[i + 1] and others[i + 1].unit
-    if not reference then
-      for j = 1, #rows do
-        local row = rows[j]
-        if row.mine and hasBuyout(row) and row.unit > others[i].unit
-            and (not reference or row.unit < reference) then
-          reference = row.unit
-        end
+  if #others == 1 then
+    local reference = cheapestMineAbove(rows, others[1].unit)
+    if reference and others[1].unit < ratio * reference then others[1].outlier = true end
+  else
+    for i = math.min(MAX_OUTLIER_ROWS, #others - 1), 1, -1 do
+      if others[i].unit < ratio * others[i + 1].unit then
+        for j = 1, i do others[j].outlier = true end
+        break
       end
-    end
-    if reference and others[i].unit < ratio * reference then
-      for j = 1, i do others[j].outlier = true end
-      break
     end
   end
 
@@ -104,6 +111,8 @@ function Listings.Normalize(raw, mineSet, ratio)
 end
 
 -- Cheapest priced rows by who owns them. Outliers are flips, not competition.
+-- flipRef is the unit price that marked `flip` as a mistake: the cheapest
+-- non-outlier other seller, or (a lone other seller) our listing above it.
 function Listings.Summarize(rows)
   local s = { mineCount = 0 }
   local lowestOtherRow, flip
@@ -126,7 +135,10 @@ function Listings.Summarize(rows)
     s.lowestOther = lowestOtherRow.unit
     s.lowestOtherSeller = lowestOtherRow.seller
   end
-  s.flip = flip
+  if flip then
+    s.flip = flip
+    s.flipRef = s.lowestOther or cheapestMineAbove(rows, flip.unit)
+  end
   return s
 end
 
