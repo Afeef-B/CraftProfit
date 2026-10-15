@@ -72,6 +72,10 @@ row = { count = 20, buyout = 40000, unit = 2000, seller = "Bob", mine = false }
 - **Mistake listings:** among other sellers' rows with a buyout (sorted), find
   the largest `i <= 3` with `unit[i] < ratio * unit[i+1]` (`ratio` =
   `CraftProfitDB.outlierRatio`, default 0.5); rows `1..i` get `outlier = true`.
+  When there is exactly one other-seller row, it is compared with your
+  lowest listing priced above it (so a lone 50g listing next to your 420g is
+  a mistake, but two sellers at 300g/310g next to your 800g are the market).
+  `Summarize` also returns `flipRef`, the price the flip was measured against.
 - Rows sorted by `unit` ascending, then `count` descending.
 
 Functions:
