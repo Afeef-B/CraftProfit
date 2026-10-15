@@ -37,6 +37,13 @@ return {
     T.eq(U.ItemIDFromLink(nil), nil)
   end,
 
+  item_name_from_link = function(T)
+    local U = load().Util
+    T.eq(U.ItemNameFromLink("|cff1eff00|Hitem:41599:0:0:0:0:0:0:0:80|h[Frostweave Bag]|h|r"), "Frostweave Bag")
+    T.eq(U.ItemNameFromLink("garbage"), nil)
+    T.eq(U.ItemNameFromLink(nil), nil)
+  end,
+
   format_age = function(T)
     local U = load().Util
     T.eq(U.FormatAge(30), "now")

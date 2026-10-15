@@ -50,6 +50,38 @@ function Mock.reset()
 
   Auctionator = nil
   Atr_GetAuctionBuyout = nil
+
+  -- Profession window: Mock.trade.rows = { {type="header", name=...} or
+  --   {name, id, link?, min?, max?, reagents = { {id, name, count, uncached?} }} }
+  Mock.trade = { line = "Tailoring", linked = nil, selected = 0, rows = {} }
+  GetTradeSkillLine = function() return Mock.trade.line, 400, 450 end
+  IsTradeSkillLinked = function() return Mock.trade.linked end
+  GetNumTradeSkills = function() return #Mock.trade.rows end
+  GetTradeSkillSelectionIndex = function() return Mock.trade.selected end
+  GetTradeSkillInfo = function(i)
+    local row = Mock.trade.rows[i]
+    if not row then return nil end
+    return row.recipeName or row.name, row.type or "optimal", 0, true
+  end
+  GetTradeSkillItemLink = function(i)
+    local row = Mock.trade.rows[i]
+    if not row or row.type == "header" then return nil end
+    return row.link or Mock.Link(row.id, row.name)
+  end
+  GetTradeSkillNumMade = function(i)
+    local row = Mock.trade.rows[i]
+    return row.min or 1, row.max or row.min or 1
+  end
+  GetTradeSkillNumReagents = function(i) return #(Mock.trade.rows[i].reagents or {}) end
+  GetTradeSkillReagentInfo = function(i, j)
+    local r = Mock.trade.rows[i].reagents[j]
+    return r.name, "tex", r.count, 0
+  end
+  GetTradeSkillReagentItemLink = function(i, j)
+    local r = Mock.trade.rows[i].reagents[j]
+    if r.uncached then return nil end
+    return Mock.Link(r.id, r.name)
+  end
 end
 
 function Mock.Link(id, name)

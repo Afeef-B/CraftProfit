@@ -16,6 +16,9 @@ for name in ([[
   GetRealmName UnitFactionGroup DEFAULT_CHAT_FRAME
   GetItemInfo GetMerchantNumItems GetMerchantItemInfo GetMerchantItemLink
   Auctionator Atr_GetAuctionBuyout
+  GetTradeSkillLine IsTradeSkillLinked GetNumTradeSkills GetTradeSkillSelectionIndex
+  GetTradeSkillInfo GetTradeSkillItemLink GetTradeSkillNumMade GetTradeSkillNumReagents
+  GetTradeSkillReagentInfo GetTradeSkillReagentItemLink
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
 local files = { ... }

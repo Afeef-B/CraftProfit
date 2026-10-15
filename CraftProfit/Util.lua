@@ -74,6 +74,12 @@ function Util.ItemIDFromLink(link)
   return id and tonumber(id) or nil
 end
 
+-- "|Hitem:...|h[Frostweave Bag]|h" -> "Frostweave Bag"
+function Util.ItemNameFromLink(link)
+  if type(link) ~= "string" then return nil end
+  return link:match("|h%[(.-)%]|h")
+end
+
 function Util.FormatAge(seconds)
   if seconds < 60 then return "now" end
   if seconds < 3600 then return floor(seconds / 60) .. "m" end
