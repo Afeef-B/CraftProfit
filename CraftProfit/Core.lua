@@ -18,6 +18,45 @@ local BUTTON_REFRESH = 0.5
 local frame = CreateFrame("Frame", "CraftProfitEventFrame")
 local sinceButtons = 0
 
+-- /cp diag: on opening the profession window, run each setup step in its own
+-- frame and print a chat line one frame before it. If the game hangs, the
+-- last line left on screen names the step.
+local DIAG_STEPS = {
+  { "create Track checkbox", function() ns.UI.CreateTrackButton() end },
+  { "position Track label", function() ns.UI.PlaceTrackLabel() end },
+  { "narrow recipe name", function() ns.UI.NarrowSkillName() end },
+  { "hook recipe selection", function() ns.UI.HookSelection() end },
+  { "read selected recipe", function() ns.Recipes.ReadSelected(true) end },
+  { "refresh AH panel", function() ns.UI.Refresh() end },
+  { "update Track checkbox", function() ns.UI.UpdateTrackButton() end },
+  { "start background scan", function() ns.Recipes.StartBackgroundScan() end },
+}
+
+local function diagStartTailoring()
+  local diag = ns.diag
+  diag.updates, diag.step, diag.announced = 0, 1, false
+  Util.Diag(string.format("0/%d Tailoring opened: %s rows, selected %s, ElvUI %s, AH panel %s",
+    #DIAG_STEPS, tostring(GetNumTradeSkills()), tostring(GetTradeSkillSelectionIndex()),
+    IsAddOnLoaded("ElvUI") and "yes" or "no", ns.UI.HasPanel() and "yes" or "no"))
+end
+
+local function diagTick()
+  local diag = ns.diag
+  if not diag or not diag.step then return end
+  local step = DIAG_STEPS[diag.step]
+  if not diag.announced then
+    Util.Diag(diag.step .. "/" .. #DIAG_STEPS .. " " .. step[1] .. " ...")
+    diag.announced = true
+    return
+  end
+  step[2]()
+  diag.step, diag.announced = diag.step + 1, false
+  if diag.step > #DIAG_STEPS then
+    diag.step = nil
+    Util.Diag("done - no freeze in the setup steps. Background scan progress follows.")
+  end
+end
+
 function Core.InitDB()
   CraftProfitDB = CraftProfitDB or {}
   CraftProfitCharDB = CraftProfitCharDB or {}
@@ -32,6 +71,7 @@ function Core.InitDB()
 end
 
 function Core.OnUpdate(_, elapsed)
+  diagTick()
   ns.Scanner.Tick(elapsed)
   ns.Recipes.Tick(elapsed)
   sinceButtons = sinceButtons + elapsed
@@ -52,6 +92,10 @@ function Core.OnEvent(event, arg1)
   elseif event == "ADDON_LOADED" then
     if arg1 == "Blizzard_AuctionUI" then ns.UI.EnsurePanel() end
   elseif event == "TRADE_SKILL_SHOW" then
+    if ns.diag then
+      diagStartTailoring()
+      return
+    end
     ns.UI.EnsureTrackButton()
     ns.Recipes.ReadSelected()
     ns.Recipes.StartBackgroundScan()
@@ -59,7 +103,12 @@ function Core.OnEvent(event, arg1)
   elseif event == "TRADE_SKILL_UPDATE" then
     -- Fires often (every craft, filter change); keep it cheap. The selected
     -- recipe is re-read by the TradeSkillFrame_SetSelection hook.
-    ns.UI.EnsureTrackButton()
+    if ns.diag then
+      ns.diag.updates = (ns.diag.updates or 0) + 1
+      if ns.diag.updates <= 3 then Util.Diag("TRADE_SKILL_UPDATE #" .. ns.diag.updates) end
+    else
+      ns.UI.EnsureTrackButton()
+    end
     ns.Recipes.NoteUpdate()
   elseif event == "TRADE_SKILL_CLOSE" then
     ns.Recipes.StopBackgroundScan()
@@ -196,6 +245,18 @@ function commands.cut(rest)
   ns.db.cut = percent / 100
   Util.Print("AH cut set to " .. percent .. "%.")
   ns.Fire("PRICES_CHANGED")
+end
+
+function commands.diag()
+  if ns.diag then
+    ns.diag = nil
+    Util.Print("Diagnostic mode is OFF.")
+    return
+  end
+  ns.diag = { hooks = 0, updates = 0 }
+  Util.Print("Diagnostic mode is ON. Now open Tailoring. Lines starting with 'diag' "
+    .. "appear one per frame; if the game freezes, the last 'diag' line on screen is the culprit. "
+    .. "Use /reload first if you already opened Tailoring this session.")
 end
 
 function commands.list()

@@ -79,12 +79,13 @@ function Recipes.ReadTradeSkill()
 end
 
 -- The recipe selected in the profession window: one row, cheap.
-function Recipes.ReadSelected()
+-- silent: don't fire RECIPES_CHANGED (used by /cp diag to separate steps).
+function Recipes.ReadSelected(silent)
   if IsTradeSkillLinked() then return nil end
   local index = GetTradeSkillSelectionIndex()
   if not index or index < 1 then return nil end
   local id, changed = readAndStore(index)
-  if changed then ns.Fire("RECIPES_CHANGED") end
+  if changed and not silent then ns.Fire("RECIPES_CHANGED") end
   return id
 end
 
@@ -119,6 +120,7 @@ function Recipes.Tick(elapsed)
     end
     scan.state, scan.nextRow, scan.changed = "scanning", 1, false
     scan.profession, scan.rows = profession, rows
+    Util.Diag("background scan started: " .. rows .. " rows")
   elseif scan.state == "scanning" then
     local total = GetNumTradeSkills()
     local last = math.min(total, scan.nextRow + ROWS_PER_TICK - 1)
@@ -127,9 +129,11 @@ function Recipes.Tick(elapsed)
       if changed then scan.changed = true end
     end
     scan.nextRow = last + 1
+    if last % 100 == 0 then Util.Diag("background scan row " .. last .. "/" .. total) end
     if scan.nextRow > total then
       scannedRows[scan.profession] = scan.rows
       scan.state = "idle"
+      Util.Diag("background scan finished")
       if scan.changed then ns.Fire("RECIPES_CHANGED") end
     end
   end

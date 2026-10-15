@@ -117,3 +117,8 @@ end
 function Util.Print(msg)
   DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99" .. addonName .. "|r: " .. msg)
 end
+
+-- Chat line for /cp diag; silent unless diagnostic mode is on.
+function Util.Diag(msg)
+  if ns.diag then Util.Print("|cffff9900diag|r " .. msg) end
+end

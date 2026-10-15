@@ -339,19 +339,15 @@ function UI.UpdateTrackButton()
   end
 end
 
-function UI.EnsureTrackButton()
-  if trackButton or not TradeSkillDetailScrollChildFrame then return end
+-- The checkbox is set up in separate steps so /cp diag can run them one
+-- frame apart and show which one misbehaves.
+function UI.CreateTrackButton()
+  if trackButton or not TradeSkillDetailScrollChildFrame then return false end
 
   trackButton = CreateFrame("CheckButton", "CraftProfitTrackCheck", TradeSkillDetailScrollChildFrame, "UICheckButtonTemplate")
   trackButton:SetWidth(22)
   trackButton:SetHeight(22)
   trackButton:SetPoint("TOPRIGHT", TradeSkillDetailScrollChildFrame, "TOPRIGHT", -2, -2)
-  local label = _G["CraftProfitTrackCheckText"]
-  label:ClearAllPoints()
-  label:SetPoint("RIGHT", trackButton, "LEFT", 0, 1)
-  label:SetText("Track")
-  -- Keep long recipe names from running under the checkbox.
-  if TradeSkillSkillName then TradeSkillSkillName:SetWidth(190) end
 
   trackButton:SetScript("OnClick", function(self)
     local id = ns.Recipes.SelectedProductID()
@@ -366,12 +362,47 @@ function UI.EnsureTrackButton()
     GameTooltip:Show()
   end)
   trackButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  return true
+end
 
+function UI.PlaceTrackLabel()
+  if not trackButton then return end
+  local label = _G["CraftProfitTrackCheckText"]
+  label:ClearAllPoints()
+  label:SetPoint("RIGHT", trackButton, "LEFT", 0, 1)
+  label:SetText("Track")
+end
+
+-- Keep long recipe names from running under the checkbox.
+function UI.NarrowSkillName()
+  if TradeSkillSkillName then TradeSkillSkillName:SetWidth(190) end
+end
+
+local selectionHooked = false
+
+function UI.HookSelection()
+  if selectionHooked then return end
+  selectionHooked = true
   hooksecurefunc("TradeSkillFrame_SetSelection", function()
+    if ns.diag then
+      ns.diag.hooks = ns.diag.hooks + 1
+      if ns.diag.hooks <= 3 then Util.Diag("selection hook #" .. ns.diag.hooks) end
+    end
     ns.Recipes.ReadSelected()
     UI.UpdateTrackButton()
   end)
+end
+
+function UI.EnsureTrackButton()
+  if not UI.CreateTrackButton() then return end
+  UI.PlaceTrackLabel()
+  UI.NarrowSkillName()
+  UI.HookSelection()
   UI.UpdateTrackButton()
+end
+
+function UI.HasPanel()
+  return panel ~= nil
 end
 
 ns.On("SCAN_STATUS", function(text)

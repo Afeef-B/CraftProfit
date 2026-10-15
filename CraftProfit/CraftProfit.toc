@@ -2,7 +2,7 @@
 ## Title: CraftProfit
 ## Notes: Scans the Auction House and shows whether your crafts make a profit.
 ## Author: afefbes1
-## Version: 1.0.1
+## Version: 1.0.2
 ## SavedVariables: CraftProfitDB
 ## SavedVariablesPerCharacter: CraftProfitCharDB
 

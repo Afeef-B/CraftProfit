@@ -198,6 +198,7 @@ function Mock.installUI()
   StaticPopupDialogs = {}
   StaticPopup_Show = function(which) Mock.popup = which end
   SlashCmdList = {}
+  IsAddOnLoaded = function(name) return Mock.loadedAddOns and Mock.loadedAddOns[name] or nil end
   CraftProfitDB, CraftProfitCharDB = nil, nil
   SLASH_CRAFTPROFIT1, SLASH_CRAFTPROFIT2 = nil, nil
 end

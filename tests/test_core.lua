@@ -27,7 +27,8 @@ end
 
 local function chatHas(text)
   for _, msg in ipairs(Mock.chat) do
-    if msg:find(text, 1, true) then return true end
+    local plain = msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    if plain:find(text, 1, true) then return true end
   end
   return false
 end
@@ -245,5 +246,37 @@ return {
     rows[11] = { name = "New Recipe", id = 59999, reagents = { { id = 69999, name = "New Mat", count = 1 } } }
     openAndSettle()
     T.ok(ns.Recipes.Get(59999), "new recipe learned after the count changed")
+  end,
+
+  diag_mode_runs_tailoring_steps_one_frame_apart = function(T)
+    local ns, Core = load()
+    Mock.trade.selected = 1
+    Core.Slash("diag")
+    T.ok(chatHas("Diagnostic mode is ON"))
+    Core.OnEvent("TRADE_SKILL_SHOW")
+    T.ok(chatHas("diag 0/8 Tailoring opened"), "start line printed")
+    T.eq(CraftProfitTrackCheck, nil, "nothing done in the event itself")
+    Core.OnEvent("TRADE_SKILL_UPDATE")
+    T.eq(CraftProfitTrackCheck, nil, "updates don't build the checkbox in diag mode")
+
+    Core.OnUpdate(nil, 0.016)                 -- frame 1: announce step 1 only
+    T.ok(chatHas("diag 1/8 create Track checkbox"))
+    T.eq(CraftProfitTrackCheck, nil, "announced before it runs")
+    Core.OnUpdate(nil, 0.016)                 -- frame 2: run step 1
+    T.ok(CraftProfitTrackCheck, "step 1 ran on the next frame")
+
+    for _ = 1, 20 do Core.OnUpdate(nil, 0.016) end
+    T.ok(chatHas("diag 8/8 start background scan"))
+    T.ok(chatHas("diag done"))
+    T.ok(ns.Recipes.Get(BAG), "selected recipe read")
+    TradeSkillFrame_SetSelection(1)
+    T.ok(chatHas("diag selection hook #1"))
+  end,
+
+  diag_off_by_default = function(T)
+    local _, Core = load()
+    Core.OnEvent("TRADE_SKILL_SHOW")
+    T.ok(CraftProfitTrackCheck, "normal mode builds the checkbox immediately")
+    T.ok(not chatHas("diag "))
   end,
 }
