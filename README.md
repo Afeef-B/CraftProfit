@@ -81,7 +81,8 @@ it is 15%, so use `/cp cut 15` there.
 | `/cp cut <percent>` | AH cut, default 5 |
 | `/cp list` | Print the profit of every tracked craft to chat |
 | `/cp reset prices` | Forget scanned AH prices for this realm and faction |
-| `/cp diag` | Diagnostic mode for the profession window: runs each setup step one frame apart and prints a chat line before each, so a freeze leaves the culprit on screen |
+| `/cp diag` | Diagnostic mode for the profession window: opening it runs none of CraftProfit's setup; each `/cp step` then runs one step, so a freeze points at the step you just ran |
+| `/cp step` | Run the next diagnostic step |
 
 ## In-game checklist (first run)
 

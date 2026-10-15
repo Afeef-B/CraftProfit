@@ -248,29 +248,38 @@ return {
     T.ok(ns.Recipes.Get(59999), "new recipe learned after the count changed")
   end,
 
-  diag_mode_runs_tailoring_steps_one_frame_apart = function(T)
+  diag_mode_runs_one_step_per_command = function(T)
     local ns, Core = load()
     Mock.trade.selected = 1
     Core.Slash("diag")
     T.ok(chatHas("Diagnostic mode is ON"))
     Core.OnEvent("TRADE_SKILL_SHOW")
     T.ok(chatHas("diag 0/8 Tailoring opened"), "start line printed")
-    T.eq(CraftProfitTrackCheck, nil, "nothing done in the event itself")
+    T.ok(chatHas("Next: 1/8 create Track checkbox - type /cp step"))
     Core.OnEvent("TRADE_SKILL_UPDATE")
-    T.eq(CraftProfitTrackCheck, nil, "updates don't build the checkbox in diag mode")
+    for _ = 1, 50 do Core.OnUpdate(nil, 0.1) end
+    T.eq(CraftProfitTrackCheck, nil, "nothing runs on its own")
 
-    Core.OnUpdate(nil, 0.016)                 -- frame 1: announce step 1 only
-    T.ok(chatHas("diag 1/8 create Track checkbox"))
-    T.eq(CraftProfitTrackCheck, nil, "announced before it runs")
-    Core.OnUpdate(nil, 0.016)                 -- frame 2: run step 1
-    T.ok(CraftProfitTrackCheck, "step 1 ran on the next frame")
+    Core.Slash("step")
+    T.ok(CraftProfitTrackCheck, "step 1 ran")
+    T.ok(chatHas("diag 1/8 create Track checkbox: done"))
+    T.ok(chatHas("Next: 2/8 position Track label - type /cp step"))
 
-    for _ = 1, 20 do Core.OnUpdate(nil, 0.016) end
-    T.ok(chatHas("diag 8/8 start background scan"))
-    T.ok(chatHas("diag done"))
+    for _ = 2, 8 do Core.Slash("step") end
+    T.ok(chatHas("diag 8/8 start background scan: done"))
+    T.ok(chatHas("all 8 steps ran without freezing"))
     T.ok(ns.Recipes.Get(BAG), "selected recipe read")
     TradeSkillFrame_SetSelection(1)
     T.ok(chatHas("diag selection hook #1"))
+    Core.Slash("step")
+    T.ok(chatHas("No diagnostic step waiting"))
+  end,
+
+  diag_step_before_opening_explains = function(T)
+    local _, Core = load()
+    Core.Slash("diag")
+    Core.Slash("step")
+    T.ok(chatHas("No diagnostic step waiting"))
   end,
 
   diag_off_by_default = function(T)

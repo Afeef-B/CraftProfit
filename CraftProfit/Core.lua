@@ -18,9 +18,9 @@ local BUTTON_REFRESH = 0.5
 local frame = CreateFrame("Frame", "CraftProfitEventFrame")
 local sinceButtons = 0
 
--- /cp diag: on opening the profession window, run each setup step in its own
--- frame and print a chat line one frame before it. If the game hangs, the
--- last line left on screen names the step.
+-- /cp diag: opening the profession window runs none of the setup below;
+-- each /cp step runs the next step, so if the game hangs the player knows
+-- exactly which step they just started.
 local DIAG_STEPS = {
   { "create Track checkbox", function() ns.UI.CreateTrackButton() end },
   { "position Track label", function() ns.UI.PlaceTrackLabel() end },
@@ -32,28 +32,36 @@ local DIAG_STEPS = {
   { "start background scan", function() ns.Recipes.StartBackgroundScan() end },
 }
 
+local function diagAnnounceNext()
+  local step = ns.diag.step
+  Util.Diag("Next: " .. step .. "/" .. #DIAG_STEPS .. " " .. DIAG_STEPS[step][1] .. " - type /cp step")
+end
+
 local function diagStartTailoring()
   local diag = ns.diag
-  diag.updates, diag.step, diag.announced = 0, 1, false
+  diag.updates, diag.step = 0, 1
   Util.Diag(string.format("0/%d Tailoring opened: %s rows, selected %s, ElvUI %s, AH panel %s",
     #DIAG_STEPS, tostring(GetNumTradeSkills()), tostring(GetTradeSkillSelectionIndex()),
     IsAddOnLoaded("ElvUI") and "yes" or "no", ns.UI.HasPanel() and "yes" or "no"))
+  diagAnnounceNext()
 end
 
-local function diagTick()
+local function diagStep()
   local diag = ns.diag
-  if not diag or not diag.step then return end
-  local step = DIAG_STEPS[diag.step]
-  if not diag.announced then
-    Util.Diag(diag.step .. "/" .. #DIAG_STEPS .. " " .. step[1] .. " ...")
-    diag.announced = true
+  if not diag or not diag.step then
+    Util.Print("No diagnostic step waiting. Type /cp diag, then open Tailoring.")
     return
   end
+  local index = diag.step
+  local step = DIAG_STEPS[index]
   step[2]()
-  diag.step, diag.announced = diag.step + 1, false
+  Util.Diag(index .. "/" .. #DIAG_STEPS .. " " .. step[1] .. ": done")
+  diag.step = index + 1
   if diag.step > #DIAG_STEPS then
     diag.step = nil
-    Util.Diag("done - no freeze in the setup steps. Background scan progress follows.")
+    Util.Diag("all " .. #DIAG_STEPS .. " steps ran without freezing. Background scan progress follows.")
+  else
+    diagAnnounceNext()
   end
 end
 
@@ -71,7 +79,6 @@ function Core.InitDB()
 end
 
 function Core.OnUpdate(_, elapsed)
-  diagTick()
   ns.Scanner.Tick(elapsed)
   ns.Recipes.Tick(elapsed)
   sinceButtons = sinceButtons + elapsed
@@ -254,9 +261,12 @@ function commands.diag()
     return
   end
   ns.diag = { hooks = 0, updates = 0 }
-  Util.Print("Diagnostic mode is ON. Now open Tailoring. Lines starting with 'diag' "
-    .. "appear one per frame; if the game freezes, the last 'diag' line on screen is the culprit. "
-    .. "Use /reload first if you already opened Tailoring this session.")
+  Util.Print("Diagnostic mode is ON. Now open Tailoring, then type /cp step to run one setup "
+    .. "step at a time. If the game freezes, the step you just ran is the culprit.")
+end
+
+function commands.step()
+  diagStep()
 end
 
 function commands.list()
