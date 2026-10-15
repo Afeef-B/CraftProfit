@@ -210,4 +210,122 @@ return {
     T.eq(last, "Scan stopped (AH closed): 1/2 done")
     T.eq(S.StartTargeted({ THREAD_ITEM }), true, "can start again")
   end,
+
+  scan_all_sends_getall_and_sets_last_scan = function(T)
+    local _, S, _, db = load()
+    T.eq(S.StartScanAll(), true)
+    S.Tick(0.1)
+    local q = Mock.queries[1]
+    T.eq(q.n, 10)
+    T.eq(q[1], ""); T.eq(q[7], 0); T.eq(q[9], -1); T.eq(q[10], true)
+    T.eq(db.lastScanAll, Mock.now)
+  end,
+
+  scan_all_chunks_500_per_tick = function(T)
+    local ns, S = load()
+    for i = 1, 1200 do Mock.ah.auctions[i] = auction(1000 + (i % 7), "Item" .. (i % 7), 1, 100 + i) end
+    S.StartScanAll()
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    S.Tick(0.1); S.Tick(0.1)
+    T.eq(S.IsBusy(), true, "still reading after 1000 rows")
+    S.Tick(0.1)
+    T.eq(S.IsBusy(), false, "done after 1200 rows")
+  end,
+
+  scan_all_min_per_item = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 20, 40000),
+      auction(CLOTH, "Frostweave Cloth", 1, 1500),
+      auction(THREAD, "Eternium Thread", 1, 300),
+      auction(THREAD, "Eternium Thread", 1, 0),
+    }
+    S.StartScanAll()
+    Mock.pump(ns)
+    local price, t, n = P.GetAH(CLOTH)
+    T.eq(price, 1500); T.eq(t, Mock.now); T.eq(n, 2)
+    price, _, n = P.GetAH(THREAD)
+    T.eq(price, 300); T.eq(n, 1)
+  end,
+
+  scan_all_marks_absent_as_none_when_complete = function(T)
+    local ns, S, P = load()
+    local OLD = 555
+    P.SetAH(OLD, 500, 3, Mock.now - 1000)
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1500) }
+    S.StartScanAll()
+    Mock.pump(ns)
+    local price, t, n = P.GetAH(OLD)
+    T.eq(price, nil); T.eq(t, Mock.now); T.eq(n, 0)
+  end,
+
+  scan_all_no_none_marking_with_nil_links = function(T)
+    local ns, S, P = load()
+    local last
+    ns.On("SCAN_STATUS", function(text) last = text end)
+    local OLD = 555
+    P.SetAH(OLD, 500, 3, Mock.now - 1000)
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1500), auction(OLD, "Old", 1, 1) }
+    Mock.ah.auctions[2].nilLink = true
+    S.StartScanAll()
+    Mock.pump(ns)
+    T.eq((P.GetAH(OLD)), 500)
+    T.eq(last, "Scan All done: 1 items from 2 auctions (1 unreadable)")
+  end,
+
+  scan_all_cooldown_values = function(T)
+    local _, S, _, db = load()
+    T.eq(S.ScanAllCooldown(), 0)
+    Mock.ah.canQueryAll = false
+    T.eq(S.ScanAllCooldown(), -1)
+    db.lastScanAll = Mock.now - 100
+    T.eq(S.ScanAllCooldown(), 800)
+    db.lastScanAll = Mock.now - 1000
+    T.eq(S.ScanAllCooldown(), -1)
+    local ok, err = S.StartScanAll()
+    T.eq(ok, false); T.eq(err, "cooldown")
+  end,
+
+  scan_all_rejects_when_busy = function(T)
+    local _, S = load()
+    S.StartTargeted({ CLOTH_ITEM })
+    local ok, err = S.StartScanAll()
+    T.eq(ok, false); T.eq(err, "busy")
+  end,
+
+  scan_all_aborts_on_foreign_query = function(T)
+    local ns, S = load()
+    local last
+    ns.On("SCAN_STATUS", function(text) last = text end)
+    S.StartScanAll()
+    S.Tick(0.1)
+    QueryAuctionItems("Runecloth", "", "", nil, nil, nil, 0, nil, -1)
+    T.eq(S.IsBusy(), false)
+    T.eq(last, "Scan All stopped (interrupted by another search)")
+  end,
+
+  scan_all_ah_closed_stops = function(T)
+    local ns, S = load()
+    for i = 1, 1200 do Mock.ah.auctions[i] = auction(CLOTH, "Frostweave Cloth", 1, 100 + i) end
+    S.StartScanAll()
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    S.Tick(0.1)
+    S.HandleEvent("AUCTION_HOUSE_CLOSED")
+    T.eq(S.IsBusy(), false)
+  end,
+
+  scan_all_ignores_empty_first_update = function(T)
+    local ns, S, P = load()
+    P.SetAH(CLOTH, 500, 3, Mock.now - 1000)
+    S.StartScanAll()
+    S.Tick(0.1)
+    Mock.pending = false
+    Mock.list, Mock.total = {}, 0
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE") -- empty update before the data
+    S.Tick(0.1)
+    T.eq((P.GetAH(CLOTH)), 500, "prices untouched")
+    T.eq(S.IsBusy(), true, "still waiting for the data")
+  end,
 }
