@@ -120,7 +120,7 @@ installed they sit to the right of Auctionator's.
    listing shown. Be quick: other players see the mistake too, and the chance
    goes. Clicking the flip row in the list does not use it for your price:
    it says "That's a mistake listing - use Buy it to flip it." Listings of
-   random-enchant items are never offered as a flip.
+   random-enchant items are never marked or offered as a flip.
    Change the 50% with `/cp outlier`.
 5. **Stack size x Stacks.** By default it offers everything you carry: gear
    one per auction, stackable items in full stacks. Change either box. If you
@@ -163,7 +163,9 @@ the list.
   - **sold**: all of that item's auctions are sold; collect the gold by mail.
   - **-**: not checked yet.
   A gold coin and "flip" at the right end means a mistake listing of that
-  item is on sale, so you could buy it.
+  item is on sale, so you could buy it. Random-enchant items ("of the
+  Monkey") never get one, and their listings count as competition like any
+  other.
 - **Check undercuts** searches every item you have up and fills in the
   statuses (a few seconds per item). Statuses are only as fresh as the last
   check.

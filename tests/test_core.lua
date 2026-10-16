@@ -847,4 +847,53 @@ return {
     T.eq(ns.SellUI.status:GetText(), "Posted 1 auction")
     T.eq(ns.SellUI.post:IsEnabled(), false, "nothing to post")
   end,
+  -- R2, the reviewer's probe 7: a flip is bought while Scan All waits for its
+  -- download. The buy's list refresh used to be read as the whole AH.
+  flip_buy_while_scan_all_waits_keeps_the_stored_prices = function(T)
+    local ns = load()
+    fire("AUCTION_HOUSE_SHOW")
+    Mock.items[BAG] = { name = "Frostweave Bag", maxStack = 1 }
+    for id = 50000, 50299 do ns.Prices.SetAH(id, gold(1), 3, 1) end
+    local function stored()
+      local n = 0
+      for _, rec in pairs(ns.Prices.AllAH()) do
+        if rec.p then n = n + 1 end
+      end
+      return n
+    end
+    local function auction(seller, buyout)
+      return { id = BAG, name = "Frostweave Bag", count = 1, buyout = buyout, seller = seller }
+    end
+    Mock.ah.auctions = { auction("Oops", gold(50)), auction("Bob", gold(420)), auction("Kim", gold(425)) }
+    click(AuctionFrameTab4)
+    Mock.bags[0] = { [1] = { id = BAG, name = "Frostweave Bag", count = 1 } }
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    T.eq(ns.SellUI.flip.frame:IsShown(), true, "the mistake listing is offered")
+    local before = stored()
+    T.eq(before, 301)
+
+    local statuses = {}
+    ns.On("SCAN_STATUS", function(text) statuses[#statuses + 1] = text end)
+    -- Scan All is started; its request is out and the client still shows the bag page
+    local page, total = Mock.list, Mock.total
+    T.eq(ns.Scanner.StartScanAll(), true)
+    ns.Core.OnUpdate(nil, 0.1)
+    T.eq(#Mock.queries, 2, "the price check, then the getAll request")
+    Mock.list, Mock.total, Mock.pending = page, total, false
+
+    click(ns.SellUI.flip.button)                 -- buys from that page
+    T.eq(#Mock.bought, 1)
+
+    fire("AUCTION_ITEM_LIST_UPDATE")             -- the client's refresh after the buyout
+    for _ = 1, 5 do ns.Core.OnUpdate(nil, 0.1) end
+    local stopped = false
+    for _, text in ipairs(statuses) do
+      T.ok(not text:find("Scan All done", 1, true), "Scan All did not finish: " .. text)
+      if text == "Scan All stopped (interrupted by a purchase)" then stopped = true end
+    end
+    T.eq(stored(), before, "no stored price was cleared")
+    T.ok(stopped, "the scan was stopped with that status")
+    T.eq(CraftProfitDB.lastScanAll ~= nil, true, "(the request was sent: the cooldown is used)")
+  end,
 }

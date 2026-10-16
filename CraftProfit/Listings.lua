@@ -91,19 +91,24 @@ function Listings.Normalize(raw, mineSet, ratio)
   -- i <= 3 (and < n) whose unit is under ratio * o(i+1) marks rows 1..i.
   -- With exactly one other seller there is no o(i+1); then our cheapest
   -- priced listing above it is the reference (none: not a mistake).
-  local others = {}
-  for i = 1, #rows do
-    local row = rows[i]
-    if not row.mine and hasBuyout(row) then others[#others + 1] = row end
-  end
-  if #others == 1 then
-    local reference = cheapestMineAbove(rows, others[1].unit)
-    if reference and others[1].unit < ratio * reference then others[1].outlier = true end
-  else
-    for i = math.min(MAX_OUTLIER_ROWS, #others - 1), 1, -1 do
-      if others[i].unit < ratio * others[i + 1].unit then
-        for j = 1, i do others[j].outlier = true end
-        break
+  -- Random-suffix variants share one item id and not a price, so no row of
+  -- such a list is a mistake (50g "of the Monkey" next to 300g "of the Bear"):
+  -- see MixedSuffix.
+  if not Listings.MixedSuffix(rows) then
+    local others = {}
+    for i = 1, #rows do
+      local row = rows[i]
+      if not row.mine and hasBuyout(row) then others[#others + 1] = row end
+    end
+    if #others == 1 then
+      local reference = cheapestMineAbove(rows, others[1].unit)
+      if reference and others[1].unit < ratio * reference then others[1].outlier = true end
+    else
+      for i = math.min(MAX_OUTLIER_ROWS, #others - 1), 1, -1 do
+        if others[i].unit < ratio * others[i + 1].unit then
+          for j = 1, i do others[j].outlier = true end
+          break
+        end
       end
     end
   end

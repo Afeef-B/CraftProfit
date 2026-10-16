@@ -953,4 +953,32 @@ return {
     ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 3, 3)
     T.eq(ns.SellUI.status:GetText(), "Posted 3 auctions")
   end,
+  -- R1: the gold "flip" tag means "you could buy it"; random-enchant rows never get it.
+  variant_rows_carry_no_flip_tag = function(T)
+    local ns = setup()
+    local function variant(seller, buyout, suffix)
+      local a = bagAuction(seller, buyout)
+      a.suffix = suffix
+      return a
+    end
+    Mock.ah.auctions = {
+      variant("Bob", gold(50), -9), variant("Kim", gold(52), -9), variant("Al", gold(300), -40),
+    }
+    openSell()
+    putBag(ns, 1)
+    local tbl = ns.SellUI.listings
+    T.eq(#tbl.rows, 3)
+    for i = 1, 3 do
+      T.eq(tbl.lines[i].note:GetText(), "", "row " .. i .. " has no tag")
+    end
+    T.eq(ns.SellUI.flip.frame:IsShown(), false)
+
+    -- the same prices on a plain item are tagged, as before
+    local plain = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(50)), bagAuction("Kim", gold(420)), bagAuction("Al", gold(425)) }
+    openSell()
+    putBag(plain, 1)
+    T.ok(plain.SellUI.listings.lines[1].note:GetText():find("flip", 1, true))
+    T.eq(plain.SellUI.flip.frame:IsShown(), true)
+  end,
 }

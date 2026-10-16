@@ -807,4 +807,26 @@ return {
     readAll(ns2)
     T.eq(ns2.Auctions.CountUndercut(BAG), 0, "Bob is dearer than we are")
   end,
+  -- R1: "of the Monkey" at 50g and 52g are competition for my 60g Monkey belt,
+  -- not mistakes to leave out of the comparison (the 300g Bear made them look
+  -- like one). No flip marker either.
+  random_suffix_rows_are_competition_not_mistakes = function(T)
+    local ns = setup()
+    Mock.owned = { bagAuction(gold(60), { suffix = -9 }) }
+    cache(ns, BAG, {
+      { count = 1, buyout = gold(50), seller = "Bob", suffix = -9 },
+      { count = 1, buyout = gold(52), seller = "Kim", suffix = -9 },
+      { count = 1, buyout = gold(60), seller = "Me", suffix = -9 },
+      { count = 1, buyout = gold(300), seller = "Al", suffix = -40 },
+    })
+    readAll(ns)
+    local g = group(ns, BAG)
+    T.eq(g.status, "undercut", "Bob's 50g is below my 60g")
+    T.eq(g.diff, gold(10))
+    T.eq(g.seller, "Bob")
+    T.eq(g.flip, nil, "no flip marker on the item")
+    for _, r in ipairs(ns.Listings.Get(BAG)) do
+      T.eq(r.outlier, false, "no mistake mark on " .. tostring(r.seller))
+    end
+  end,
 }

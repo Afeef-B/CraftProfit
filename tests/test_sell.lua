@@ -1524,12 +1524,16 @@ return {
     }
     putBag(ns2, 1)
     local rows = ns2.Sell.State().listings
-    T.eq(rows[1].outlier, true, "marked a mistake by price alone")
-    T.eq(ns2.Sell.PickRow(rows[1]), true, "it is no mistake among variants: the player may pick it")
+    T.eq(rows[1].outlier, false, "no mistake mark among variants (Listings.Normalize)")
+    T.eq(ns2.Sell.PickRow(rows[1]), true)
     T.eq(ns2.Sell.State().unit, gold(49, 99))
     T.eq(ns2.Sell.State().canPost, true)
     ns2.Sell.PickRow(rows[3])
     T.eq(ns2.Sell.State().unit, gold(299, 99))
+    -- a row marked some other way (a hand-made cache) is no mistake here either
+    rows[1].outlier = true
+    T.eq(ns2.Sell.PickRow(rows[1]), true, "it is no mistake among variants: the player may pick it")
+    T.eq(ns2.Sell.State().unit, gold(49, 99))
 
     -- the player's own price does not fill a variant either
     local ns3 = setup()

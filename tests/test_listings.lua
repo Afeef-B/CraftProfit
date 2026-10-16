@@ -505,4 +505,48 @@ return {
     T.eq(L.MixedSuffix(rowsWith(0, 0, 1221)), true, "one variant among plain rows")
     T.eq(L.MixedSuffix(rowsWith(0, -9)), true)
   end,
+  -- R1: the price-based mistake rule is meaningless among random-suffix
+  -- variants (50g and 52g "of the Monkey" next to 300g "of the Bear"): no row
+  -- is marked, so nothing shows a flip tag or drops out of the competition.
+  no_mistake_marks_on_random_suffix_rows = function(T)
+    local _, L = load()
+    local function rowsWith(list)
+      local raw = {}
+      for i, e in ipairs(list) do
+        raw[i] = { count = 1, buyout = e[1], seller = e[2], suffix = e[3], page = 0, index = i }
+      end
+      return L.Normalize(raw, L.MineSet(), L.Ratio())
+    end
+    local function marked(rows)
+      local n = 0
+      for _, r in ipairs(rows) do
+        if r.outlier then n = n + 1 end
+      end
+      return n
+    end
+
+    local prices = { { g(50), "Bob", -9 }, { g(52), "Kim", -9 }, { g(300), "Al", -40 } }
+    local rows = rowsWith(prices)
+    T.eq(L.MixedSuffix(rows), true)
+    T.eq(marked(rows), 0, "no row is a mistake")
+    local s = L.Summarize(rows)
+    T.eq(s.flip, nil)
+    T.eq(s.lowestOther, g(50), "the 50g variant is competition")
+
+    -- one variant on its own, or among plain rows, is just as unmarked
+    T.eq(marked(rowsWith({ { g(50), "Bob", -9 }, { g(420), "Kim", -9 }, { g(425), "Al", -9 } })), 0)
+    T.eq(marked(rowsWith({ { g(50), "Bob", -9 }, { g(420), "Kim", 0 }, { g(425), "Al", 0 } })), 0)
+    T.eq(marked(rowsWith({ { g(50), "Bob", 0 }, { g(420), "Kim", 0 }, { g(425), "Al", -9 } })), 0)
+    -- a lone other seller judged against our listing: same
+    T.eq(marked(rowsWith({ { g(50), "Bob", -9 }, { g(420), "Me", -9 } })), 0)
+
+    -- plain items (suffix 0 or unknown) keep their marks
+    local plain = rowsWith({ { g(50), "Bob", 0 }, { g(420), "Kim", 0 }, { g(425), "Al" } })
+    T.eq(L.MixedSuffix(plain), false)
+    T.eq(marked(plain), 1)
+    T.eq(plain[1].outlier, true)
+    T.ok(L.Summarize(plain).flip)
+    local lone = rowsWith({ { g(50), "Bob" }, { g(420), "Me" } })
+    T.eq(lone[1].outlier, true, "a lone seller against our listing is still a mistake")
+  end,
 }

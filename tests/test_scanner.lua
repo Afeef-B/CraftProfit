@@ -173,12 +173,68 @@ return {
     T.ok(Mock.pump(ns))
     T.eq(select(3, ns.Prices.GetAH(CLOTH)), 1)
 
-    -- a Scan All has no query to repeat
-    S.StartScanAll()
+  end,
+
+  -- R2: a purchase while a Scan All waits for its download. The buy's list
+  -- refresh would be read as the whole AH: Scan All "done" with one item, every
+  -- other stored price cleared. There is no query to repeat, so the scan stops
+  -- (the way a foreign search stops it).
+  resend_stops_a_scan_all_that_waits = function(T)
+    local ns, S, P = load()
+    for id = 50000, 50009 do P.SetAH(id, 1000, 3, 1) end
+    local finished = 0
+    ns.On("SCAN_FINISHED", function() finished = finished + 1 end)
+    local function stored()
+      local n = 0
+      for _, rec in pairs(P.AllAH()) do
+        if rec.p then n = n + 1 end
+      end
+      return n
+    end
+    T.eq(stored(), 10)
+
+    -- the getAll request is out (allWait)
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }
+    T.eq(S.StartScanAll(), true)
     S.Tick(0.1)
+    T.eq(#Mock.queries, 1, "only the getAll request")
     S.Resend()
-    T.eq(#Mock.queries, 3, "only the getAll request went out")
-    S.Stop("test")
+    T.eq(S.IsBusy(), false)
+    T.eq(S.statusText, "Scan All stopped (interrupted by a purchase)")
+    T.eq(finished, 1)
+    -- the refresh that follows the buyout is nobody's answer
+    Mock.list, Mock.total = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }, 1
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    S.Tick(0.1)
+    T.eq(S.IsBusy(), false)
+    T.eq(stored(), 10, "no stored price was cleared")
+    T.eq(#Mock.queries, 1)
+
+    -- still waiting for the cooldown (allSend): stopped before anything was asked
+    Mock.ah.canQueryAll = false
+    Mock.ah.canQuery = false
+    local waiting = S.StartScanAll()
+    T.eq(waiting, false, "on cooldown: no scan to stop")
+    Mock.ah.canQueryAll = true
+    T.eq(S.StartScanAll(), true)
+    Mock.ah.canQueryAll = false                  -- the next Tick would still wait
+    S.Resend()
+    T.eq(S.IsBusy(), false)
+    T.eq(S.statusText, "Scan All stopped (interrupted by a purchase)")
+    T.eq(#Mock.queries, 1, "the request was never sent")
+
+    -- already downloading (allRead): left alone; the oversize-list guard keeps
+    -- a buy from ever happening on that list
+    Mock.ah.canQueryAll = true
+    Mock.ah.auctions = {}
+    for i = 1, 120 do Mock.ah.auctions[i] = auction(CLOTH, "Frostweave Cloth", 1, 1000 + i, "S" .. i) end
+    T.eq(S.StartScanAll(), true)
+    S.Tick(0.1)
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")    -- the whole list arrived: allRead
+    S.Resend()
+    T.eq(S.IsBusy(), true, "a download that has arrived is not interrupted")
+    T.ok(Mock.pump(ns))
+    T.eq(select(3, P.GetAH(CLOTH)), 120)
   end,
 
   nil_links_wait_then_read = function(T)

@@ -376,9 +376,17 @@ end
 
 -- The page the client shows is not the answer to the query that is waiting
 -- (someone else searched, or the client refreshed the list after a buyout):
--- send the query again. A scan that is not waiting for a page is left alone.
+-- send the query again. A Scan All that has not downloaded yet has no query to
+-- repeat (its one request is limited to every 15 minutes), and the refresh
+-- would be read as the whole Auction House: it stops, as it does for a foreign
+-- search. A download that has arrived (allRead) is left alone, like a scan that
+-- is not waiting for a page; nothing is bought from a list that big.
 function Scanner.Resend()
-  if state == "wait" then state = "send" end
+  if state == "wait" then
+    state = "send"
+  elseif state == "allSend" or state == "allWait" then
+    Scanner.Stop("interrupted by a purchase")
+  end
 end
 
 -- Hooked onto QueryAuctionItems. Someone else searched while we waited, so

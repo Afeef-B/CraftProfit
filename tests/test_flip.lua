@@ -992,8 +992,11 @@ return {
     })
     local rows = ns.Listings.Get(BAG)
     T.eq(#rows, 3)
-    T.eq(rows[1].outlier, true, "the rows do look like a mistake by price alone")
-    T.eq(ns.Flip.Info(BAG), nil, "but no flip is offered")
+    T.eq(rows[1].outlier, false, "no mistake mark among variants (Listings.Normalize)")
+    T.eq(ns.Flip.Info(BAG), nil, "no flip is offered")
+    -- ... and not even for rows marked some other way (a hand-made cache)
+    rows[1].outlier, rows[2].outlier = true, true
+    T.eq(ns.Flip.Info(BAG), nil, "Flip.Info looks at the suffixes itself")
     T.eq(ns.Flip.State(BAG), "idle")
     local w = newWidget(ns)
     w:Update()
