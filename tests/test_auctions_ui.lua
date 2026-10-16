@@ -1062,7 +1062,7 @@ return {
     T.eq(ui.rows[12].name:GetText(), "Item 25")
     items(24)
     T.eq(ui.scroll.offset, 12, "the bottom of the shorter list, not the top")
-    T.eq(barValue, 12 * 16, "the scroll bar follows")
+    T.eq(barValue, 12 * ns.Style.ROW_H, "the scroll bar follows")
     T.eq(ui.rows[1].name:GetText(), "Item 13")
     T.eq(ui.rows[12].name:GetText(), "Item 24")
 
@@ -1135,5 +1135,36 @@ return {
     ns.Fire("SCAN_FINISHED")
     T.eq(searches, 0)
     T.eq(ns.Scanner.IsBusy(), false)
+  end,
+
+  auctions_layout_fits = function(T)
+    local ns = setup()
+    openAuctions()
+    local S, L = ns.Style, ns.AuctionsUI.layout
+    T.ok(L, "AuctionsUI.layout")
+    local names = {}
+    for name in pairs(L) do names[#names + 1] = name end
+    T.ok(#names >= 5, "list, buttons, listings, actions, flip")
+    local bottom = S.PAGE_H - S.PAD - S.STATUS_H
+    for _, name in ipairs(names) do
+      local r = L[name]
+      T.ok(r.x >= S.PAD and r.x + r.w <= S.PAGE_W - S.PAD, name .. " fits the width")
+      T.ok(r.y >= S.PAD and r.y + r.h <= bottom, name .. " ends above the status bar")
+    end
+    for i = 1, #names do
+      for j = i + 1, #names do
+        local a, b = L[names[i]], L[names[j]]
+        local apart = a.x + a.w <= b.x or b.x + b.w <= a.x or a.y + a.h <= b.y or b.y + b.h <= a.y
+        T.ok(apart, names[i] .. " and " .. names[j] .. " do not overlap")
+      end
+    end
+  end,
+
+  rows_are_style_height = function(T)
+    local ns = setup()
+    openAuctions()
+    for _, row in ipairs(ns.AuctionsUI.rows) do T.eq(row:GetHeight(), ns.Style.ROW_H) end
+    T.ok(CraftProfitAuctionsList._backdrop, "the list is a boxed section")
+    T.ok(CraftProfitCancelNext:GetWidth() >= 120 and CraftProfitCancelUndercut:GetWidth() >= 120)
   end,
 }

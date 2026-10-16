@@ -6,6 +6,7 @@
 local addonName, ns = ...
 
 local Util = ns.Util
+local Style = ns.Style
 local Auctions = ns.Auctions
 local Listings = ns.Listings
 
@@ -13,12 +14,24 @@ ns.AuctionsUI = {}
 local AuctionsUI = ns.AuctionsUI
 
 local BAD = "|cffff4040"
-local VISIBLE, ROW_HEIGHT = 12, 16
-local TITLE_HEIGHT, HEADER_HEIGHT = 18, 16
-local LEFT, TOP = 10, -6               -- the page's inner margin
-local LIST_WIDTH, SCROLLBAR_WIDTH = 380, 24
-local ROW_WIDTH = LIST_WIDTH - SCROLLBAR_WIDTH
+local VISIBLE, ROW_HEIGHT = Style.VISIBLE, Style.ROW_H
+local TITLE_HEIGHT, HEADER_HEIGHT = 22, 16
+local INSET = 8                        -- rows inside the list's box
+local LIST_WIDTH, SCROLLBAR_WIDTH = Style.LEFT_W, 24
+local ROW_WIDTH = LIST_WIDTH - 2 * INSET - SCROLLBAR_WIDTH
 local FLIP_WIDTH = 40                  -- the flip marker's own cell at the right end of a row
+local LISTING_ROWS = 8                 -- the right-hand table, with room under it
+
+-- Where each section sits on the page: x, y from the top-left, width, height.
+local P, RIGHT_X = Style.PAD, Style.PAD + Style.LEFT_W + Style.GAP
+local LAYOUT = {
+  list     = { x = P, y = 8, w = LIST_WIDTH, h = TITLE_HEIGHT + HEADER_HEIGHT + VISIBLE * ROW_HEIGHT + 6 },
+  buttons  = { x = P, y = 272, w = LIST_WIDTH, h = 24 },
+  listings = { x = RIGHT_X, y = 8, w = Style.RIGHT_W, h = 20 + 18 + LISTING_ROWS * ROW_HEIGHT },
+  actions  = { x = RIGHT_X, y = 196, w = Style.RIGHT_W, h = 24 },
+  flip     = { x = RIGHT_X, y = 226, w = Style.RIGHT_W, h = 68 },
+}
+AuctionsUI.layout = LAYOUT
 local REDRAW = 15                      -- seconds between the page's own redraws (ages grow)
 
 local WAIT_LIST = "Waiting for the auction list to update..."
@@ -28,8 +41,8 @@ local NO_ACTIVE = "You have no active auctions."
 -- Cells of a list row (after the icon): key, x offset, width, header. The
 -- status text clips before it can reach the flip cell.
 local CELLS = {
-  { "name", 18, 90, "Item" },
-  { "yours", 112, 58, "Yours" },
+  { "name", 20, 96, "Item" },
+  { "yours", 120, 50, "Yours" },
   { "status", 174, ROW_WIDTH - 174 - FLIP_WIDTH, "Status" },
 }
 
@@ -45,21 +58,16 @@ local retryId   -- a picked item whose search waits for the running scan to end
 
 local drawList, drawTitle, drawOldest  -- below
 
-local function makeText(parent, font, width, height)
-  local fs = parent:CreateFontString(nil, "OVERLAY", font)
+local function makeText(parent, kind, width, height)
+  local fs = Style.Text(parent, kind)
   fs:SetWidth(width)
   fs:SetHeight(height)
-  fs:SetJustifyH("LEFT")
   fs:SetJustifyV("TOP")
   return fs
 end
 
-local function createButton(page, name, text, width)
-  local button = CreateFrame("Button", name, page, "UIPanelButtonTemplate")
-  button:SetWidth(width)
-  button:SetHeight(22)
-  button:SetText(text)
-  return button
+local function place(frame, page, r)
+  frame:SetPoint("TOPLEFT", page, "TOPLEFT", r.x, -r.y)
 end
 
 local function setEnabled(button, on)
@@ -145,9 +153,14 @@ local function createRow(list, i)
   local row = CreateFrame("Button", nil, list)
   row:SetWidth(ROW_WIDTH)
   row:SetHeight(ROW_HEIGHT)
-  row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -(TITLE_HEIGHT + HEADER_HEIGHT) - (i - 1) * ROW_HEIGHT)
+  row:SetPoint("TOPLEFT", list, "TOPLEFT", INSET, -(TITLE_HEIGHT + HEADER_HEIGHT) - (i - 1) * ROW_HEIGHT)
   row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
   row:RegisterForClicks("LeftButtonUp")
+  if i % 2 == 0 then
+    local stripe = row:CreateTexture(nil, "BACKGROUND")
+    stripe:SetAllPoints(row)
+    stripe:SetTexture(1, 1, 1, 0.06)
+  end
 
   row.selected = row:CreateTexture(nil, "BACKGROUND")
   row.selected:SetAllPoints(row)
@@ -157,15 +170,16 @@ local function createRow(list, i)
   row.selected:Hide()
 
   row.icon = row:CreateTexture(nil, "ARTWORK")
-  row.icon:SetWidth(14)
-  row.icon:SetHeight(14)
+  row.icon:SetWidth(16)
+  row.icon:SetHeight(16)
   row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
   for _, cell in ipairs(CELLS) do
-    local fs = makeText(row, "GameFontHighlightSmall", cell[3], 14)
+    local fs = makeText(row, "value", cell[3], ROW_HEIGHT)
+    fs:SetJustifyV("MIDDLE")
     fs:SetPoint("LEFT", row, "LEFT", cell[2], 0)
     row[cell[1]] = fs
   end
-  row.flip = makeText(row, "GameFontHighlightSmall", FLIP_WIDTH, 14)
+  row.flip = makeText(row, "value", FLIP_WIDTH, ROW_HEIGHT)
   row.flip:SetJustifyH("RIGHT")
   row.flip:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
@@ -177,25 +191,26 @@ local function createRow(list, i)
 end
 
 local function createList(page)
-  local list = CreateFrame("Frame", "CraftProfitAuctionsList", page)
-  list:SetWidth(LIST_WIDTH)
-  list:SetHeight(TITLE_HEIGHT + HEADER_HEIGHT + VISIBLE * ROW_HEIGHT)
-  list:SetPoint("TOPLEFT", page, "TOPLEFT", LEFT, TOP)
+  local r = LAYOUT.list
+  local list = Style.Panel(page, "CraftProfitAuctionsList", "Your auctions", r.w, r.h)
+  place(list, page, r)
   AuctionsUI.list = list
 
-  local title = list:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  title:SetPoint("TOPLEFT", list, "TOPLEFT", 0, 0)
-  title:SetText("Your auctions")
+  -- How old the oldest check behind "Cancel next undercut" is, in the title row.
+  AuctionsUI.oldest = makeText(list, "label", 190, 14)
+  AuctionsUI.oldest:SetJustifyH("RIGHT")
+  AuctionsUI.oldest:SetPoint("TOPRIGHT", list, "TOPRIGHT", -INSET, -6)
+
   for _, cell in ipairs(CELLS) do
-    local header = makeText(list, "GameFontNormalSmall", cell[3], 14)
-    header:SetPoint("TOPLEFT", list, "TOPLEFT", cell[2], -TITLE_HEIGHT)
+    local header = makeText(list, "label", cell[3], 14)
+    header:SetPoint("TOPLEFT", list, "TOPLEFT", INSET + cell[2], -TITLE_HEIGHT)
     header:SetText(cell[4])
   end
 
   -- The scroll frame comes first so the rows sit above it and get the clicks.
   local scroll = CreateFrame("ScrollFrame", "CraftProfitAuctionsListScroll", list, "FauxScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -(TITLE_HEIGHT + HEADER_HEIGHT))
-  scroll:SetPoint("BOTTOMRIGHT", list, "TOPRIGHT", -SCROLLBAR_WIDTH,
+  scroll:SetPoint("TOPLEFT", list, "TOPLEFT", INSET, -(TITLE_HEIGHT + HEADER_HEIGHT))
+  scroll:SetPoint("BOTTOMRIGHT", list, "TOPRIGHT", -INSET - SCROLLBAR_WIDTH,
     -(TITLE_HEIGHT + HEADER_HEIGHT + VISIBLE * ROW_HEIGHT))
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, drawList)
@@ -205,7 +220,7 @@ local function createList(page)
   AuctionsUI.rows = {}
   for i = 1, VISIBLE do AuctionsUI.rows[i] = createRow(list, i) end
 
-  AuctionsUI.empty = list:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  AuctionsUI.empty = list:CreateFontString(nil, "OVERLAY", "GameFontDisable")
   AuctionsUI.empty:SetPoint("TOP", list, "TOP", 0, -(TITLE_HEIGHT + HEADER_HEIGHT + 20))
   AuctionsUI.empty:SetText("You have no auctions.")
 end
@@ -217,30 +232,28 @@ function AuctionsUI.Build()
   built = true
 
   createList(page)
-  local list = AuctionsUI.list
 
-  AuctionsUI.check = createButton(page, "CraftProfitCheckUndercuts", "Check undercuts", 120)
-  AuctionsUI.check:SetPoint("TOPLEFT", list, "BOTTOMLEFT", 0, -4)
+  local b = LAYOUT.buttons
+  AuctionsUI.check = Style.Button(page, "CraftProfitCheckUndercuts", "Check undercuts", 120)
+  AuctionsUI.check:SetPoint("TOPLEFT", page, "TOPLEFT", b.x, -b.y)
   AuctionsUI.check:SetScript("OnClick", onCheck)
-  AuctionsUI.cancelNext = createButton(page, "CraftProfitCancelNext", "Cancel next undercut (0)", 190)
+  AuctionsUI.cancelNext = Style.Button(page, "CraftProfitCancelNext", "Cancel next undercut (0)", 200, true)
   AuctionsUI.cancelNext:SetPoint("LEFT", AuctionsUI.check, "RIGHT", 6, 0)
   AuctionsUI.cancelNext:SetScript("OnClick", onCancelNext)
-  AuctionsUI.oldest = makeText(page, "GameFontHighlightSmall", 190, 12)
-  AuctionsUI.oldest:SetPoint("TOPLEFT", AuctionsUI.cancelNext, "BOTTOMLEFT", 0, -4)
-  AuctionsUI.status = makeText(page, "GameFontHighlightSmall", LIST_WIDTH, 40)
-  AuctionsUI.status:SetPoint("TOPLEFT", AuctionsUI.check, "BOTTOMLEFT", 0, -20)
+  AuctionsUI.status = Style.StatusBar(page)
 
-  local tbl = ns.ListingsUI.Create(page, "CraftProfitAuctionsListings")
-  tbl.frame:SetPoint("TOPRIGHT", page, "TOPRIGHT", -LEFT, TOP)
+  local tbl = ns.ListingsUI.Create(page, "CraftProfitAuctionsListings", nil, { visible = LISTING_ROWS })
+  place(tbl.frame, page, LAYOUT.listings)
   AuctionsUI.listings = tbl
-  AuctionsUI.cancelUndercut = createButton(page, "CraftProfitCancelUndercut", "Cancel undercut (0)", 170)
-  AuctionsUI.cancelUndercut:SetPoint("TOPLEFT", tbl.frame, "BOTTOMLEFT", 0, -4)
+  local a = LAYOUT.actions
+  AuctionsUI.cancelUndercut = Style.Button(page, "CraftProfitCancelUndercut", "Cancel undercut (0)", 180, true)
+  AuctionsUI.cancelUndercut:SetPoint("TOPLEFT", page, "TOPLEFT", a.x, -a.y)
   AuctionsUI.cancelUndercut:SetScript("OnClick", onCancelUndercut)
-  AuctionsUI.undercut = createButton(page, "CraftProfitUndercutButton", "Undercut", 100)
+  AuctionsUI.undercut = Style.Button(page, "CraftProfitUndercutButton", "Undercut", 120)
   AuctionsUI.undercut:SetPoint("LEFT", AuctionsUI.cancelUndercut, "RIGHT", 6, 0)
   AuctionsUI.undercut:SetScript("OnClick", onUndercut)
   AuctionsUI.flip = ns.Flip.CreateWidget(page, pickedItem)
-  AuctionsUI.flip.frame:SetPoint("TOPLEFT", AuctionsUI.cancelUndercut, "BOTTOMLEFT", 0, -4)
+  place(AuctionsUI.flip.frame, page, LAYOUT.flip)
 
   page:SetScript("OnUpdate", onTick)
 end
