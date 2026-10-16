@@ -4,7 +4,7 @@ local BAG, BOLT, CLOTH, THREAD, DUST = 41599, 41510, 33470, 38426, 34054
 
 -- Every addon file, in the order of the toc.
 local ALL = {
-  "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
+  "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
   "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Sell.lua", "SellUI.lua",
   "Auctions.lua", "AuctionsUI.lua", "Core.lua",
 }

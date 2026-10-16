@@ -7,7 +7,7 @@ local RED = "|cffff4040"
 local function load()
   Mock.reset()
   Mock.installUI()
-  local ns = Mock.load({ "Util.lua", "Listings.lua", "ListingsUI.lua" })
+  local ns = Mock.load({ "Util.lua", "Style.lua", "Listings.lua", "ListingsUI.lua" })
   ns.Listings.SetDB({ chars = { [REALM] = { Twink = true } } }, REALM, "Me")
   return ns
 end
@@ -70,13 +70,13 @@ return {
 
     -- Flip: another seller's mistake listing
     T.eq(L[1].qty:GetText(), "1")
-    T.eq(L[1].price:GetText(), U.FormatMoney(500))
+    T.eq(L[1].price:GetText(), ns.Style.Money(500))
     T.eq(L[1].seller:GetText(), "Flip")
     T.eq(L[1].note:GetText(), U.ICON_GOLD .. " flip")
 
     -- Bob: cheaper than our listing
     T.eq(L[2].qty:GetText(), "2")
-    T.eq(L[2].price:GetText(), U.FormatMoney(2000))
+    T.eq(L[2].price:GetText(), ns.Style.Money(2000))
     T.eq(L[2].seller:GetText(), "Bob")
     T.eq(L[2].note:GetText(), RED .. U.ICON_WARN .. " under you|r")
 
@@ -86,7 +86,7 @@ return {
 
     -- this character, then an alt
     T.eq(L[4].qty:GetText(), "5")
-    T.eq(L[4].price:GetText(), U.FormatMoney(3000))
+    T.eq(L[4].price:GetText(), ns.Style.Money(3000))
     T.eq(L[4].seller:GetText(), "YOU")
     T.eq(L[4].note:GetText(), "")
     T.eq(L[5].seller:GetText(), "YOU (Twink)")
@@ -222,5 +222,69 @@ return {
     for _, api in ipairs({ "PlaceAuctionBid", "StartAuction", "CancelAuction", "ClickAuctionSellItemButton" }) do
       T.eq(src:find(api, 1, true), nil, api .. " must not appear")
     end
+  end,
+
+  listings_columns_fit = function(T)
+    local ns = load()
+    local total = 0
+    for _, col in ipairs(ns.ListingsUI.COLUMNS) do total = math.max(total, col.x + col.width) end
+    T.ok(total <= ns.Style.RIGHT_W - 24, "columns end at " .. total)
+    local tbl = ns.ListingsUI.Create(UIParent, NAME)
+    T.eq(tbl.frame:GetWidth(), ns.Style.RIGHT_W)
+    T.eq(tbl.lines[1]:GetHeight(), ns.Style.ROW_H)
+    T.eq(#tbl.lines, ns.Style.VISIBLE)
+  end,
+
+  stack_total_column = function(T)
+    local ns = load()
+    local tbl = ns.ListingsUI.Create(UIParent, NAME)
+    tbl:SetRows(sampleRows(ns))
+    T.eq(tbl.lines[2].total:GetText(), ns.Style.Money(4000), "Bob's 2 for 40s")
+    T.eq(tbl.lines[6].total:GetText(), "-", "bid only has no buyout")
+  end,
+
+  buy_mode_tags_deal = function(T)
+    local ns = load()
+    local buy = ns.ListingsUI.Create(UIParent, NAME .. "Buy", nil, { mode = "buy" })
+    buy:SetRows(sampleRows(ns))
+    T.ok(buy.lines[1].note:GetText():find("deal", 1, true), "mistake listing is a deal on CP Buy")
+    T.ok(not buy.lines[1].note:GetText():find("flip", 1, true))
+    local sell = ns.ListingsUI.Create(UIParent, NAME .. "Sell")
+    sell:SetRows(sampleRows(ns))
+    T.ok(sell.lines[1].note:GetText():find("flip", 1, true), "elsewhere it is still a flip")
+  end,
+
+  bought_row_greyed_in_buy_mode = function(T)
+    local ns = load()
+    local rows = sampleRows(ns)
+    ns.Buyer = { IsBought = function(row) return row == rows[2] end }
+    local buy = ns.ListingsUI.Create(UIParent, NAME .. "Buy", nil, { mode = "buy" })
+    buy:SetRows(rows)
+    T.eq(buy.lines[2].note:GetText(), "bought")
+    T.ok(buy.lines[1].note:GetText() ~= "bought")
+  end,
+
+  set_selected_highlights_one_row = function(T)
+    local ns = load()
+    local rows = sampleRows(ns)
+    local tbl = ns.ListingsUI.Create(UIParent, NAME)
+    tbl:SetRows(rows)
+    tbl:SetSelected(rows[3])
+    for i = 1, 6 do
+      T.eq(tbl.lines[i].selected:IsShown(), i == 3, "line " .. i)
+    end
+    tbl:SetSelected(nil)
+    T.eq(tbl.lines[3].selected:IsShown(), false)
+  end,
+
+  title_with_icon = function(T)
+    local ns = load()
+    local tbl = ns.ListingsUI.Create(UIParent, NAME)
+    tbl:SetTitle("Frostweave Bag: all listings", "Interface\\Icons\\INV_Misc_Bag_10")
+    T.eq(tbl.title:GetText(), "Frostweave Bag: all listings")
+    T.eq(tbl.icon._texture, "Interface\\Icons\\INV_Misc_Bag_10")
+    T.eq(tbl.icon:IsShown(), true)
+    tbl:SetTitle("")
+    T.eq(tbl.icon:IsShown(), false)
   end,
 }

@@ -3,7 +3,7 @@ local Mock = require("wow_mock")
 local function load()
   Mock.reset()
   Mock.installUI()
-  return Mock.load({ "Util.lua", "Tabs.lua" })
+  return Mock.load({ "Util.lua", "Style.lua", "Tabs.lua" })
 end
 
 -- What another addon (Auctionator) does: a named tab with the next id.

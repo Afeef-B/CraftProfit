@@ -4,7 +4,7 @@ local BAG, BOLT, CLOTH, THREAD = 41599, 41510, 33470, 38426
 
 local function load()
   Mock.reset()
-  return Mock.load({ "Util.lua", "Profit.lua" })
+  return Mock.load({ "Util.lua", "Style.lua", "Profit.lua" })
 end
 
 -- Stand-in for Prices.ResolveBuy/ResolveSell: cheapest of AH and craft.

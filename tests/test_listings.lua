@@ -4,7 +4,7 @@ local REALM = "Icecrown-Alliance"
 
 local function load(db)
   Mock.reset()
-  local ns = Mock.load({ "Util.lua", "Listings.lua" })
+  local ns = Mock.load({ "Util.lua", "Style.lua", "Listings.lua" })
   db = db or {}
   ns.Listings.SetDB(db, REALM, "Me")
   return ns, ns.Listings, db
@@ -102,7 +102,7 @@ return {
     db.outlierRatio = 0.7
     T.eq(L.Ratio(), 0.7)
     -- before SetDB the defaults still work.
-    local ns2 = Mock.load({ "Util.lua", "Listings.lua" })
+    local ns2 = Mock.load({ "Util.lua", "Style.lua", "Listings.lua" })
     T.eq(ns2.Listings.Ratio(), 0.5)
     local empty = ns2.Listings.MineSet()
     T.eq(next(empty), nil)

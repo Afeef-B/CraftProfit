@@ -4,7 +4,7 @@ local CLOTH, THREAD, BAG = 33470, 38426, 41599
 
 local function load(db)
   Mock.reset()
-  local ns = Mock.load({ "Util.lua", "Profit.lua", "Prices.lua" })
+  local ns = Mock.load({ "Util.lua", "Style.lua", "Profit.lua", "Prices.lua" })
   ns.Prices.SetDB(db or {}, "Icecrown-Alliance")
   return ns, ns.Prices
 end

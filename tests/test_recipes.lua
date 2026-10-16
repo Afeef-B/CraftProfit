@@ -4,7 +4,7 @@ local BAG, BOLT, CLOTH, THREAD, NET = 41599, 41510, 33470, 38426, 41509
 
 local function load(chardb)
   Mock.reset()
-  local ns = Mock.load({ "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua" })
+  local ns = Mock.load({ "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua" })
   ns.Recipes.SetDB(chardb or {})
   return ns, ns.Recipes
 end

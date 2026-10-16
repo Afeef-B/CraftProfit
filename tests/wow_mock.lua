@@ -365,8 +365,10 @@ function FrameMethods.Enable(self) self._enabled = true end
 function FrameMethods.Disable(self) self._enabled = false end
 function FrameMethods.IsEnabled(self) return self._enabled end
 function FrameMethods.SetTexture(self, tex) self._texture = tex end
-function FrameMethods.GetWidth() return 0 end
-function FrameMethods.GetHeight() return 0 end
+function FrameMethods.SetWidth(self, w) self._width = w end
+function FrameMethods.SetHeight(self, h) self._height = h end
+function FrameMethods.GetWidth(self) return self._width or 0 end
+function FrameMethods.GetHeight(self) return self._height or 0 end
 function FrameMethods.AddLine(self, text) table.insert(Mock.tooltip, text or "") end
 function FrameMethods.AddDoubleLine(self, left, right) table.insert(Mock.tooltip, (left or "") .. " | " .. (right or "")) end
 function FrameMethods.ClearLines() Mock.tooltip = {} end

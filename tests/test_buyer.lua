@@ -16,7 +16,7 @@ local function setup(auctions)
   Mock.reset()
   Mock.installUI()
   local ns = Mock.load({
-    "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
+    "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
     "Buyer.lua",
   })
   local db = { cut = 0.05 }

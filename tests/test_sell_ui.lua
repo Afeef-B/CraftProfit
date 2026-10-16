@@ -15,7 +15,7 @@ local function setup()
   Mock.reset()
   Mock.installUI()
   local ns = Mock.load({
-    "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
+    "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
     "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Sell.lua", "SellUI.lua",
   })
   local db = { cut = 0.05 }
@@ -903,7 +903,7 @@ return {
       if tbl.lines[i].seller:GetText() == "YOU" then you = tbl.lines[i] end
     end
     T.ok(you, "our new auction")
-    T.eq(you.price:GetText(), "419g 99s")
+    T.eq(you.price:GetText(), ns.Style.Money(4199900))
     T.eq(ns.SellUI.status:GetText(), "Posted 1 auction")
 
     -- another item replaces it, and the table starts at the top
