@@ -21,6 +21,12 @@ Scanner.statusText = ""
 local db
 local state = "idle"   -- idle | send | wait | allSend | allWait | allRead
 local job
+-- Core says when the Auction House opens and closes (SetAHOpen). While it is
+-- closed nothing may start a search: a search queued by a SCAN_FINISHED listener
+-- during the close would otherwise go out at the next open. Until told, the AH
+-- counts as open, so a scanner used on its own (tests, a reload with the AH
+-- already up) works.
+local ahOpen = true
 -- Fingerprint of the last results page we read. The client can fire a late
 -- AUCTION_ITEM_LIST_UPDATE for that page after our next search went out;
 -- an identical page is then not the answer to the new search. lastKey names
@@ -36,6 +42,14 @@ function Scanner.IsBusy()
   return state ~= "idle"
 end
 
+function Scanner.SetAHOpen(open)
+  ahOpen = open and true or false
+end
+
+function Scanner.IsAHOpen()
+  return ahOpen
+end
+
 local function setStatus(text)
   Scanner.statusText = text
   ns.Fire("SCAN_STATUS", text)
@@ -49,6 +63,7 @@ end
 -- opts.collect: also keep every listing of the item (count, buyout, seller,
 -- page, index) and hand the rows to ns.Listings.
 function Scanner.StartTargeted(items, opts)
+  if not ahOpen then return false, "closed" end
   if state ~= "idle" then return false, "busy" end
   if not items or #items == 0 then return false, "empty" end
   job = { items = items, index = 1, page = 0, n = 0, retries = 0 }
@@ -69,6 +84,7 @@ end
 -- Ask the AH for one results page of a name search so the player can act on
 -- it. Not a scan: the scanner stays idle and never reads the answer.
 function Scanner.LoadPage(name, page)
+  if not ahOpen then return false, "closed" end
   if state ~= "idle" then return false, "busy" end
   if not CanSendAuctionQuery() then return false, "throttled" end
   Scanner.sending = true
@@ -225,6 +241,7 @@ function Scanner.ScanAllCooldown()
 end
 
 function Scanner.StartScanAll()
+  if not ahOpen then return false, "closed" end
   if state ~= "idle" then return false, "busy" end
   if Scanner.ScanAllCooldown() ~= 0 then return false, "cooldown" end
   job = { all = true, waited = 0 }

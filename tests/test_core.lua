@@ -721,4 +721,130 @@ return {
     fire("AUCTION_MULTISELL_UPDATE", 3, 3)
     T.eq(ns.Sell.State().reason, nil)
   end,
+  -- I6: the order matters. The scanner must know the AH is closed before the
+  -- close stops its scan, because stopping a scan lets the pages start theirs.
+  ah_events_tell_the_scanner_whether_the_ah_is_open = function(T)
+    local ns = load()
+    local order = {}
+    local open = spy(ns.Scanner, "SetAHOpen", order)
+    spy(ns.Scanner, "HandleEvent", order)
+    fire("AUCTION_HOUSE_SHOW")
+    T.eq(#open, 1)
+    T.eq(open[1][1], true)
+    fire("AUCTION_HOUSE_CLOSED")
+    T.eq(#open, 2)
+    T.eq(open[2][1], false)
+    T.eq(order[2], "SetAHOpen", "told first on the close")
+    T.eq(order[3], "HandleEvent")
+  end,
+
+  -- I6, the reviewer's probe P2: CP Sell has a check running and one queued when
+  -- the AH closes. The queued one must not start, now or at the next open.
+  ah_close_leaves_no_queued_sell_check_for_the_next_open = function(T)
+    local ns = load()
+    fire("AUCTION_HOUSE_SHOW")
+    click(AuctionFrameTab4)
+    Mock.items[BAG] = { name = "Frostweave Bag", maxStack = 1 }
+    Mock.items[41600] = { name = "Glacial Bag", maxStack = 1 }
+    Mock.ah.auctions = { { id = BAG, name = "Frostweave Bag", count = 1, buyout = gold(420), seller = "Bob" } }
+    Mock.bags[0] = {
+      [1] = { id = BAG, name = "Frostweave Bag", count = 1 },
+      [2] = { id = 41600, name = "Glacial Bag", count = 1 },
+    }
+    T.ok(ns.Sell.PutItem(0, 1))                  -- the check for the first bag is running
+    T.ok(ns.Sell.PutItem(0, 2))                  -- the second one waits for it
+    T.eq(ns.Sell.State().status, "Waiting for the current scan...")
+
+    Mock.ah.canQuery = false                     -- once the window is gone
+    AuctionFrame:Hide()
+    fire("AUCTION_HOUSE_CLOSED")
+    Mock.sellSlot = nil
+    fire("NEW_AUCTION_UPDATE")
+    for _ = 1, 50 do ns.Core.OnUpdate(nil, 0.1) end
+    T.eq(ns.Scanner.IsBusy(), false, "nothing is left running or queued")
+    T.eq(ns.Sell.State().status, "")
+
+    -- the AH opens again: nothing is sent until the player asks for something
+    Mock.ah.canQuery = true
+    AuctionFrame:Show()
+    fire("AUCTION_HOUSE_SHOW")
+    for _ = 1, 50 do ns.Core.OnUpdate(nil, 0.1) end
+    T.eq(#Mock.queries, 0, "no query at the next open")
+    T.eq(ns.Scanner.IsBusy(), false)
+
+    -- and asking works as before
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1)
+  end,
+
+  -- I6, probe P3: CP Auctions has a pick waiting for the running scan.
+  ah_close_drops_the_auctions_pick_that_waited_for_the_scan = function(T)
+    local ns = load()
+    fire("AUCTION_HOUSE_SHOW")
+    Mock.items[BAG] = { name = "Frostweave Bag", maxStack = 1 }
+    Mock.owned = {
+      { id = BAG, name = "Frostweave Bag", count = 1, buyout = gold(430) },
+      { id = 41600, name = "Glacial Bag", count = 1, buyout = gold(100) },
+    }
+    Mock.ah.auctions = { { id = BAG, name = "Frostweave Bag", count = 1, buyout = gold(420), seller = "Bob" } }
+    click(AuctionFrameTab5)
+    Mock.deliverOwned(ns)
+    click(CraftProfitCheckUndercuts)
+    ns.Core.OnUpdate(nil, 0.1)                   -- the first query is out
+    T.eq(ns.Scanner.IsBusy(), true)
+    local row = ns.AuctionsUI.rows[1]
+    click(row)                                   -- the pick waits for the scan
+    local searches = spy(ns.Auctions, "Select")
+
+    Mock.ah.canQuery = false
+    fire("AUCTION_HOUSE_CLOSED")                 -- Blizzard's frame is still up for this event
+    AuctionFrame:Hide()
+    T.eq(#searches, 0, "the pick is not searched at the close")
+    for _ = 1, 20 do ns.Core.OnUpdate(nil, 0.1) end
+    T.eq(ns.Scanner.IsBusy(), false)
+
+    Mock.ah.canQuery = true
+    AuctionFrame:Show()
+    fire("AUCTION_HOUSE_SHOW")
+    for _ = 1, 20 do ns.Core.OnUpdate(nil, 0.1) end
+    T.eq(#searches, 0)
+    T.eq(ns.Scanner.IsBusy(), false)
+  end,
+
+  -- I4, the reviewer's probe P1, through the real events: after a post the slot
+  -- empties and CP Sell shows the new auction as YOU.
+  cp_sell_shows_the_new_auction_after_a_post = function(T)
+    local ns = load()
+    fire("AUCTION_HOUSE_SHOW")
+    click(AuctionFrameTab4)
+    Mock.items[BAG] = { name = "Frostweave Bag", maxStack = 1 }
+    Mock.ah.auctions = { { id = BAG, name = "Frostweave Bag", count = 1, buyout = gold(420), seller = "Bob" } }
+    Mock.bags[0] = { [1] = { id = BAG, name = "Frostweave Bag", count = 1 } }
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    local tbl = ns.SellUI.listings
+    T.eq(#tbl.rows, 1)
+    click(CraftProfitSellPost)
+    T.eq(#Mock.started, 1)
+
+    -- the game: the auction is made, the item leaves the bags, the slot empties
+    Mock.ah.auctions[#Mock.ah.auctions + 1] =
+      { id = BAG, name = "Frostweave Bag", count = 1, buyout = gold(419, 99), seller = "Me" }
+    Mock.bags[0][1] = nil
+    Mock.sellSlot = nil
+    fire("NEW_AUCTION_UPDATE")
+    T.eq(ns.Sell.State().item, nil)
+    T.eq(#tbl.rows, 1, "the old rows stay until the check answers")
+    T.ok(Mock.pump(ns))
+    T.eq(#tbl.rows, 2, "the post-check rows")
+    T.eq(tbl.title:GetText(), "Frostweave Bag: all listings")
+    local you = 0
+    for i = 1, 2 do
+      if tbl.lines[i].seller:GetText() == "YOU" then you = you + 1 end
+    end
+    T.eq(you, 1, "the new auction is shown as YOU")
+    T.eq(ns.SellUI.status:GetText(), "Posted 1 auction")
+    T.eq(ns.SellUI.post:IsEnabled(), false, "nothing to post")
+  end,
 }

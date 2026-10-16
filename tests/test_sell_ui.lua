@@ -872,4 +872,49 @@ return {
     T.eq(tbl.lines[2].row.underYou, nil, "our own row is not under us")
     T.eq(tbl.lines[2].note:GetText(), "")
   end,
+  -- I4: after a post the slot is empty, and the table still shows that item's
+  -- listings, with the new auction as YOU, until another item goes in.
+  listings_table_keeps_the_posted_item_after_the_slot_empties = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)), bagAuction("Dave", gold(450)) }
+    openSell()
+    putBag(ns, 1)
+    local tbl = ns.SellUI.listings
+    T.eq(#tbl.rows, 2)
+    T.eq(tbl.title:GetText(), BAG_NAME .. ": all listings")
+    tbl.scroll.offset = 1
+    click(CraftProfitSellPost)
+
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = bagAuction("Me", gold(419, 99))
+    Mock.bags[0][1] = nil
+    Mock.sellSlot = nil
+    ns.Sell.OnSlotChanged(nil)                    -- NEW_AUCTION_UPDATE
+    T.eq(ns.SellUI.itemName:GetText(), "", "the slot is empty")
+    T.eq(CraftProfitSellPost:IsEnabled(), false)
+    T.eq(ns.SellUI.reason:GetText(), "Drag an item here or Alt+click it in your bags.")
+    T.eq(#tbl.rows, 2, "the rows stay")
+    T.eq(tbl.title:GetText(), BAG_NAME .. ": all listings")
+    T.eq(tbl.scroll.offset, 1, "and so does the scroll place")
+
+    T.ok(Mock.pump(ns))
+    T.eq(#tbl.rows, 3, "the check after posting redraws the table")
+    local you
+    for i = 1, 3 do
+      if tbl.lines[i].seller:GetText() == "YOU" then you = tbl.lines[i] end
+    end
+    T.ok(you, "our new auction")
+    T.eq(you.price:GetText(), "419g 99s")
+    T.eq(ns.SellUI.status:GetText(), "Posted 1 auction")
+
+    -- another item replaces it, and the table starts at the top
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = auction(OTHER, OTHER_NAME, "Cara", 1, gold(100))
+    T.ok(ns.Sell.PutItem(0, 2))
+    T.eq(tbl.title:GetText(), OTHER_NAME .. ": all listings")
+    T.eq(#tbl.rows, 0, "its check has not answered")
+    T.eq(tbl.scroll.offset, 0)
+    T.ok(Mock.pump(ns))
+    T.eq(#tbl.rows, 1)
+    T.eq(tbl.lines[1].seller:GetText(), "Cara")
+  end,
 }

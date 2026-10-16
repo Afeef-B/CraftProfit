@@ -757,4 +757,45 @@ return {
     T.eq(bySeller.Al.suffix, 1221)
     T.eq(ns.Listings.MixedSuffix(ns.Listings.Get(CLOTH)), true)
   end,
+  -- I6: nothing is sent while the AH is closed.
+  closed_ah_refuses_every_search = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }
+    T.eq(S.IsAHOpen(), true, "scans work until the AH is said to be closed")
+
+    S.SetAHOpen(false)
+    T.eq(S.IsAHOpen(), false)
+    local ok, err = S.StartTargeted({ CLOTH_ITEM })
+    T.eq(ok, false); T.eq(err, "closed")
+    ok, err = S.PriceCheck(CLOTH_ITEM)
+    T.eq(ok, false); T.eq(err, "closed")
+    ok, err = S.StartScanAll()
+    T.eq(ok, false); T.eq(err, "closed")
+    ok, err = S.LoadPage("Frostweave Cloth", 0)
+    T.eq(ok, false); T.eq(err, "closed")
+    T.eq(S.IsBusy(), false)
+    S.Tick(1)
+    T.eq(#Mock.queries, 0, "nothing was sent")
+
+    S.SetAHOpen(true)
+    T.eq(S.StartTargeted({ CLOTH_ITEM }), true)
+    T.ok(Mock.pump(ns))
+    T.eq(S.LoadPage("Frostweave Cloth", 0), true)
+    T.eq(S.StartScanAll(), true)
+    S.Stop("test")
+  end,
+
+  -- A scan that is stopped by the close does not leave work behind for the next
+  -- open: SCAN_FINISHED listeners that start a search get "closed".
+  scan_finished_listener_cannot_start_a_search_after_the_close = function(T)
+    local ns, S = load()
+    local started
+    ns.On("SCAN_FINISHED", function() started = { S.PriceCheck(CLOTH_ITEM) } end)
+    S.StartTargeted({ CLOTH_ITEM })
+    S.SetAHOpen(false)                  -- the AH tells the scanner first
+    S.HandleEvent("AUCTION_HOUSE_CLOSED")
+    T.eq(S.IsBusy(), false)
+    T.eq(started[1], false)
+    T.eq(started[2], "closed")
+  end,
 }

@@ -1107,4 +1107,33 @@ return {
     T.eq(ui.listings.title:GetText(), BAG_NAME .. ": all listings (checked now)",
       "the name of an item no longer listed")
   end,
+  -- I6: the AH closed while a pick waited for the running scan.
+  closed_ah_drops_the_waiting_pick = function(T)
+    local ns = setup()
+    Mock.owned = { bagAuction(gold(420)), owned(DUST, DUST_NAME, gold(5)) }
+    Mock.ah.auctions = {
+      { id = BAG, name = BAG_NAME, count = 1, buyout = gold(410), seller = "Bob" },
+      { id = DUST, name = DUST_NAME, count = 1, buyout = gold(4), seller = "Bob" },
+    }
+    openAuctions()
+    readAll(ns)
+    T.ok(ns.Scanner.PriceCheck({ id = DUST, name = DUST_NAME }))
+    click(rowOf(ns, BAG_NAME))                     -- waits for the scan
+    T.eq(ns.Auctions.Selected(), BAG)
+
+    local searches = 0
+    local select = ns.Auctions.Select
+    ns.Auctions.Select = function(...) searches = searches + 1 return select(...) end
+    ns.Scanner.SetAHOpen(false)                    -- Core tells the scanner first
+    ns.Scanner.Stop("AH closed")                   -- ... which fires SCAN_FINISHED
+    T.eq(searches, 0, "the pick is not searched")
+    T.eq(ns.Scanner.IsBusy(), false)
+    T.eq(#Mock.queries, 0)
+
+    -- opening the AH again does not bring it back
+    ns.Scanner.SetAHOpen(true)
+    ns.Fire("SCAN_FINISHED")
+    T.eq(searches, 0)
+    T.eq(ns.Scanner.IsBusy(), false)
+  end,
 }

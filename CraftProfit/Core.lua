@@ -122,6 +122,7 @@ function Core.OnEvent(event, arg1, arg2)
   elseif event == "MERCHANT_SHOW" or event == "MERCHANT_UPDATE" then
     ns.Prices.RecordMerchant()
   elseif event == "AUCTION_HOUSE_SHOW" then
+    ns.Scanner.SetAHOpen(true)
     ns.UI.ShowPanel()
     -- Not before the first show: addons that add AH tabs (Auctionator) build
     -- theirs when the AH UI loads, and ours take the first ids left after them.
@@ -130,7 +131,10 @@ function Core.OnEvent(event, arg1, arg2)
     ns.Scanner.HandleEvent(event)
     ns.Flip.OnListUpdate()
   elseif event == "AUCTION_HOUSE_CLOSED" then
-    ns.Scanner.HandleEvent(event)   -- stops a running scan first
+    -- Told first: stopping the scan lets the pages that waited for it start
+    -- theirs, and none may start now.
+    ns.Scanner.SetAHOpen(false)
+    ns.Scanner.HandleEvent(event)   -- stops a running scan
     ns.Flip.Reset()
     ns.Sell.OnAuctionHouseClosed()
   elseif event == "NEW_AUCTION_UPDATE" then

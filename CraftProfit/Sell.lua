@@ -372,7 +372,13 @@ end
 
 -- A price check stored rows for `id` (also fired for checks other pages ran).
 function Sell.OnListings(id)
-  if not item or item.id ~= id then return end
+  if not item then
+    -- The slot is empty, but the table still shows the last item's rows (see
+    -- State): the check after a post lands here.
+    if id == Sell.lastId then changed() end
+    return
+  end
+  if item.id ~= id then return end
   local rows = ns.Listings.Get(id)
   if not rows then return end
   listings, checked, checkFailed = rows, true, false
@@ -411,6 +417,8 @@ end
 -- listing is something to buy, not a price: ok, or false and "outlier".
 function Sell.PickRow(row)
   if not row or (row.unit or 0) <= 0 then return end
+  -- Rows can stay on show after the slot empties; there is nothing to price.
+  if not item then return false, "no-item" end
   -- (Among random-enchant variants a cheap row is just another variant.)
   if row.outlier and not isVariant(listings) then
     status = MISTAKE_ROW
@@ -428,7 +436,10 @@ function Sell.PickRow(row)
   return true
 end
 
--- Everything the page shows. `reason` says why canPost is false:
+-- Everything the page shows. `shownId` / `shownName` name the item whose
+-- `listings` the table shows: the item in the slot, or once the slot has
+-- emptied (after a post) the last item, with its cached rows, until another
+-- item goes in. `reason` says why canPost is false:
 --   "no-item"      nothing in the slot
 --   "slot-changed" the slot holds something other than our item (we have not
 --                  heard of the change yet)
@@ -455,8 +466,11 @@ function Sell.State()
   }
   if not current then
     s.canPost, s.reason = false, "no-item"
+    s.shownId, s.shownName = Sell.lastId, lastName
+    s.listings = Sell.lastId and (ns.Listings.Get(Sell.lastId)) or nil
     return s
   end
+  s.shownId, s.shownName = current.id, current.name
 
   current.owned = ownedCount(current.id, slotTotal)
   s.variant = isVariant(listings)
@@ -555,9 +569,12 @@ end
 
 -- The Auction House closed. The game empties its sell slot then, and no
 -- multisell or slot event will say how the post ended: drop the lock and
--- whatever the status line said about it.
+-- whatever the status line said about it, and the searches in flight.
 function Sell.OnAuctionHouseClosed()
   posting = false
+  -- Nothing is going to answer a search that was running or waiting, and none
+  -- may start at the next open on its own.
+  running, wanted = nil, nil
   status = ""
   changed()
 end

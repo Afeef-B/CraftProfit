@@ -29,7 +29,8 @@ local REASONS = {
 
 local built = false
 local drawing = false  -- the page is writing into its own inputs: that is not the player typing
-local shownId          -- id of the item the page last drew
+local shownId          -- id of the item in the slot the page last drew
+local listedId         -- id of the item whose listings the table last drew
 local drawnStatus      -- Sell's own status line as last drawn
 local drawnCount = {}  -- box -> the count Sell had when the page last drew it
 
@@ -222,15 +223,20 @@ local function reasonText(s)
   return REASONS[s.reason] or ""
 end
 
--- A different item (or none): its listings start at the top and the flip
--- notice follows the new item at once.
+-- A different item in the slot (or none): the flip notice follows it at once.
 local function itemChanged(id)
   shownId = id
+  SellUI.flip:Update()
+end
+
+-- The table shows another item's listings: they start at the top. (An emptied
+-- slot leaves the table on the last item, so this is not itemChanged.)
+local function listedChanged(id)
+  listedId = id
   local scroll = SellUI.listings.scroll
   FauxScrollFrame_SetOffset(scroll, 0)
   local bar = _G[scroll:GetName() .. "ScrollBar"]
   if bar then bar:SetValue(0) end
-  SellUI.flip:Update()
 end
 
 local function drawItem(s)
@@ -240,15 +246,16 @@ local function drawItem(s)
     SellUI.icon:Show()
     SellUI.itemName:SetText(item.name)
     SellUI.owned:SetText("You have " .. item.owned)
-    SellUI.listings:SetTitle(item.name .. ": all listings")
   else
     SellUI.icon:Hide()
     SellUI.itemName:SetText("")
     SellUI.owned:SetText("")
-    SellUI.listings:SetTitle("")
   end
+  -- Once the slot has emptied after a post, the table keeps the last item (its
+  -- new auctions show up as YOU when the check after posting answers).
+  SellUI.listings:SetTitle(s.shownName and (s.shownName .. ": all listings") or "")
   -- The marks follow the rows we show, whichever page drew them last.
-  SellUI.listings:SetRows(item and s.listings and ns.Listings.MarkUnderYou(s.listings))
+  SellUI.listings:SetRows(s.listings and ns.Listings.MarkUnderYou(s.listings))
 end
 
 -- Redraws everything from Sell.State().
@@ -258,6 +265,7 @@ function SellUI.Update()
 
   local id = s.item and s.item.id
   if id ~= shownId then itemChanged(id) end
+  if s.shownId ~= listedId then listedChanged(s.shownId) end
   drawItem(s)
 
   drawPrice(s.unit)

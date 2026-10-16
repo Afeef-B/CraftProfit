@@ -419,11 +419,14 @@ ns.On("PAGE_ERROR", function(msg) showMessage(BAD .. (msg or "") .. "|r") end)
 ns.On("SCAN_STATUS", function(text) showMessage(text or "") end)
 
 -- The scan that kept a pick waiting is over: search it now, if it is still the
--- pick and the page is still the one shown.
+-- pick and the page is still the one shown. A scan the close of the Auction
+-- House stopped leaves nothing to search: the pick is dropped, not kept for the
+-- next open (Core tells the scanner before it stops the scan).
 ns.On("SCAN_FINISHED", function()
   local id = retryId
   retryId = nil
-  if id and built and ns.Tabs.IsShown("auctions") and Auctions.Selected() == id then
+  if id and built and ns.Scanner.IsAHOpen() and ns.Tabs.IsShown("auctions")
+      and Auctions.Selected() == id then
     pick(id)
   end
 end)

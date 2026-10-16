@@ -519,7 +519,8 @@ return {
     local s = ns.Sell.State()
     T.eq(s.item, nil)
     T.eq(s.unit, nil)
-    T.eq(s.listings, nil)
+    T.eq(#s.listings, 1, "the table keeps the last item's rows (see listings_stay_after_the_slot_empties)")
+    T.eq(s.shownId, BAG)
     T.eq(s.reason, "no-item")
     T.eq(s.status, "", "no error text for a normal emptying")
     T.eq(ns.Sell.lastId, BAG, "the last item is remembered for the check after posting")
@@ -1617,5 +1618,136 @@ return {
     T.eq(ns2.Sell.State().reason, "too-big")
     ns2.Sell.SetStack(1)
     T.eq(ns2.Sell.State().canPost, true)
+  end,
+  -- I4: the slot empties after the post; the table keeps showing the item whose
+  -- auctions were just posted, and the check after posting fills in the new ones.
+  listings_stay_after_the_slot_empties = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 1)
+    local s = ns.Sell.State()
+    T.eq(s.shownId, BAG)
+    T.eq(s.shownName, BAG_NAME)
+    T.eq(#s.listings, 1)
+    T.eq(ns.Sell.Post(), true)
+
+    -- the game: the auction is made, the bag leaves the bags, the slot empties
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = bagAuction("Me", gold(419, 99))
+    Mock.bags[0][1] = nil
+    Mock.sellSlot = nil
+    changes.n = 0
+    ns.Sell.OnSlotChanged(nil)
+    s = ns.Sell.State()
+    T.eq(s.item, nil)
+    T.eq(s.reason, "no-item", "nothing to post")
+    T.eq(s.canPost, false)
+    T.eq(s.status, "Posted 1 auction")
+    T.eq(s.shownId, BAG, "still the item that was posted")
+    T.eq(s.shownName, BAG_NAME)
+    T.eq(#s.listings, 1, "its rows from before the post, until the check answers")
+    T.ok(ns.Scanner.IsBusy(), "the check after posting is running")
+
+    T.ok(Mock.pump(ns))
+    s = ns.Sell.State()
+    T.eq(s.item, nil)
+    T.eq(#s.listings, 2, "the check's rows replace them")
+    local mine = 0
+    for _, row in ipairs(s.listings) do
+      if row.mine then mine = mine + 1 end
+    end
+    T.eq(mine, 1, "the new auction shows as ours")
+    T.eq(s.status, "Posted 1 auction")
+    T.ok(changes.n >= 2, "the page was told when the rows arrived")
+
+    -- another item going in switches the table to it
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = auction(OTHER, OTHER_NAME, "Cara", 1, gold(100))
+    T.ok(ns.Sell.PutItem(0, 2))
+    s = ns.Sell.State()
+    T.eq(s.shownId, OTHER)
+    T.eq(s.shownName, OTHER_NAME)
+    T.eq(s.listings, nil, "the new item's check has not answered")
+    T.ok(Mock.pump(ns))
+    s = ns.Sell.State()
+    T.eq(#s.listings, 1)
+    T.eq(s.listings[1].seller, "Cara")
+
+    -- an emptied slot shows that item's rows instead
+    Mock.sellSlot = nil
+    ns.Sell.OnSlotChanged(nil)
+    s = ns.Sell.State()
+    T.eq(s.shownId, OTHER)
+    T.eq(s.listings[1].seller, "Cara")
+
+    -- nothing was ever put in: nothing to show
+    local fresh = setup()
+    local f = fresh.Sell.State()
+    T.eq(f.shownId, nil)
+    T.eq(f.listings, nil)
+  end,
+
+  -- I4: someone else's price check of that item redraws the rows too.
+  listings_after_the_slot_empties_follow_the_cache = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 1)
+    Mock.sellSlot = nil
+    ns.Sell.OnSlotChanged(nil)
+    T.ok(Mock.pump(ns))
+    changes.n = 0
+    ns.Fire("LISTINGS_UPDATED", OTHER)
+    T.eq(changes.n, 0, "another item's rows are not ours")
+    ns.Fire("LISTINGS_UPDATED", BAG)
+    T.eq(changes.n, 1)
+    -- a click on a row with no item in the slot prices nothing
+    local rows = ns.Sell.State().listings
+    local ok, why = ns.Sell.PickRow(rows[1])
+    T.eq(ok, false)
+    T.eq(why, "no-item")
+    T.eq(ns.Sell.State().unit, nil)
+  end,
+
+  -- I6: the AH is gone; whatever Sell had waiting to search is not wanted.
+  ah_close_drops_the_running_and_queued_checks = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    inBag(0, 1, BAG, BAG_NAME, 1)
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    T.ok(ns.Sell.PutItem(0, 1))                  -- the check for the bag is running
+    T.ok(ns.Sell.PutItem(0, 2))                  -- the one for the other bag waits
+    T.eq(ns.Sell.State().status, "Waiting for the current scan...")
+
+    ns.Sell.OnAuctionHouseClosed()
+    ns.Scanner.Stop("AH closed")                 -- what the close does to the scan
+    T.eq(ns.Scanner.IsBusy(), false, "the queued check did not start")
+    T.eq(#Mock.queries, 0)
+    T.eq(ns.Sell.State().status, "")
+
+    -- and nothing starts at a later scan's end either
+    ns.Fire("SCAN_FINISHED")
+    T.eq(ns.Scanner.IsBusy(), false)
+  end,
+
+  -- The scanner refuses while the AH is closed (see Scanner.SetAHOpen), so a
+  -- queued check that gets going in the middle of the close still starts nothing.
+  queued_check_cannot_start_while_the_ah_is_closed = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    inBag(0, 1, BAG, BAG_NAME, 1)
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(ns.Sell.PutItem(0, 2))
+    ns.Scanner.SetAHOpen(false)
+    ns.Scanner.Stop("AH closed")
+    T.eq(ns.Scanner.IsBusy(), false, "SCAN_FINISHED started nothing")
+    ns.Sell.OnAuctionHouseClosed()
+    T.eq(#Mock.queries, 0)
+    T.eq(ns.Sell.State().status, "", "no half-way search note")
+    -- opening again asks for nothing
+    ns.Scanner.SetAHOpen(true)
+    for _ = 1, 20 do ns.Scanner.Tick(0.1) end
+    T.eq(#Mock.queries, 0)
   end,
 }
