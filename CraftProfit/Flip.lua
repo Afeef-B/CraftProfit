@@ -16,6 +16,7 @@ local RED = "|cffff4040"
 local DEFAULT_CUT = 0.05
 local WIDTH, HEIGHT = 340, 68
 local BUTTON_WIDTH, BUTTON_HEIGHT = 170, 22
+local PAGE_SIZE = NUM_AUCTION_ITEMS_PER_PAGE or 50
 local FIND_TIMEOUT = 10 -- seconds to wait for the page we asked for
 local LINK_WAIT = 2     -- seconds to wait for item links / seller names on it
 
@@ -108,6 +109,10 @@ end
 local function findOnPage(id, row)
   local unreadable = false
   local batch = GetNumAuctionItems("list")
+  -- After Scan All the list is the whole Auction House, not a page. Walking it
+  -- row by row would be ~100k API calls in one click: treat it as a page that
+  -- cannot be read.
+  if batch > PAGE_SIZE then return nil, true end
   for i = 1, batch do
     local link = GetAuctionItemLink("list", i)
     local _, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
@@ -185,12 +190,15 @@ local function evaluate(id, entry, force)
   end
 end
 
--- Ids whose search is still running.
+-- Ids whose search is still running. Nothing is allocated when there are none
+-- (Tick asks every frame); the empty result is shared and must not be written to.
+local NONE = {}
 local function findingIds()
-  local ids = {}
+  local ids = NONE
   for id, entry in pairs(track) do
     if entry.state == "finding" then
       if Flip.State(id) == "finding" then
+        if ids == NONE then ids = {} end
         ids[#ids + 1] = id
       else
         track[id] = nil -- the rows were replaced meanwhile
@@ -212,6 +220,7 @@ end
 -- seconds ends (the player can click again); a page that stays unreadable
 -- for LINK_WAIT seconds is judged by its readable rows. Never buys.
 function Flip.Tick(elapsed)
+  if next(track) == nil then return end
   for _, id in ipairs(findingIds()) do
     local entry = track[id]
     entry.waited = entry.waited + elapsed

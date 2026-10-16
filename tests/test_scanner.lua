@@ -798,4 +798,61 @@ return {
     T.eq(started[1], false)
     T.eq(started[2], "closed")
   end,
+  -- M3: the "list" can hold the whole AH (the answer to Scan All). It is never
+  -- the answer to a name search, and reading it row by row would take ~100k
+  -- API calls in one frame.
+  oversize_list_is_not_read_as_a_page = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    T.eq(S.StartTargeted({ CLOTH_ITEM }, { collect = true }), true)
+    S.Tick(0.1)
+    T.eq(#Mock.queries, 1)
+    local answer, total = Mock.list, Mock.total
+
+    local whole = {}
+    for i = 1, 120 do
+      whole[i] = auction(CLOTH, "Frostweave Cloth", 1, 1000 + i, "S" .. i)
+    end
+    Mock.list, Mock.total = whole, 120
+    local reads = 0
+    local info, link = GetAuctionItemInfo, GetAuctionItemLink
+    GetAuctionItemInfo = function(...) reads = reads + 1 return info(...) end
+    GetAuctionItemLink = function(...) reads = reads + 1 return link(...) end
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    S.Tick(0.1)
+    GetAuctionItemInfo, GetAuctionItemLink = info, link
+    T.eq(reads, 0, "not a single row was read")
+    T.eq(S.IsBusy(), true, "and it was not taken for the answer")
+    T.eq(ns.Listings.Get(CLOTH), nil)
+
+    -- the real answer finishes the search
+    Mock.list, Mock.total = answer, total
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    T.eq(S.IsBusy(), false)
+    T.eq(#ns.Listings.Get(CLOTH), 1)
+
+    -- Scan All itself still reads its whole list (in chunks)
+    Mock.ah.auctions = {}
+    for i = 1, 120 do Mock.ah.auctions[i] = auction(CLOTH, "Frostweave Cloth", 1, 1000 + i, "S" .. i) end
+    T.eq(S.StartScanAll(), true)
+    T.ok(Mock.pump(ns))
+    T.eq(select(3, ns.Prices.GetAH(CLOTH)), 120)
+  end,
+
+  -- The guard must not leave the scan waiting for ever behind an update it
+  -- ignores: the timeout still resends.
+  oversize_list_does_not_stall_the_timeout = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000, "Bob") }
+    Mock.ah.nilLinks = true                        -- the page's links have not loaded
+    S.StartTargeted({ CLOTH_ITEM })
+    S.Tick(0.1)
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")      -- waits for the links
+    local whole = {}
+    for i = 1, 120 do whole[i] = auction(CLOTH, "Frostweave Cloth", 1, 1000 + i, "S" .. i) end
+    Mock.list, Mock.total = whole, 120
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")      -- ... then the whole AH shows up
+    for _ = 1, 15 do S.Tick(1) end
+    T.ok(#Mock.queries >= 2, "the search was sent again after the timeout")
+  end,
 }

@@ -189,6 +189,14 @@ end
 -- waits for the next update when some item links aren't cached yet.
 local function readPage(force)
   local batch, total = GetNumAuctionItems("list")
+  -- A list bigger than a page is the whole Auction House (the answer to a
+  -- Scan All), never the answer to a name search; reading it would take ~100k
+  -- API calls in one frame. Wait for the real answer. (The wait for item links
+  -- is off too, so the query timeout still resends.)
+  if batch > PAGE_SIZE then
+    job.linkWait = nil
+    return
+  end
   local fingerprint = pagePrint(batch, total)
   if not force and fingerprint and fingerprint == lastPrint and job.queryKey ~= lastKey then return end
   if not force and (not allLinksReady(batch) or (job.collect and not allOwnersReady(batch))) then

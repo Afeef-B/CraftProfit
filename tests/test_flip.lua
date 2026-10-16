@@ -1010,4 +1010,64 @@ return {
     -- plain rows are unchanged
     T.ok(setup().Flip.Info(BAG), "the standard flip is still found")
   end,
+  -- M3: after Scan All the "list" holds the whole Auction House. Looking for a
+  -- row in it would be ~100k API calls in one click.
+  oversize_list_is_not_searched = function(T)
+    local ns = setup()
+    local flipper = Mock.ah.auctions[1]
+    local whole = {}
+    for i = 1, 120 do
+      whole[i] = { id = 99, name = "Junk", count = 1, buyout = gold(1), seller = "S" }
+    end
+    whole[60] = flipper                           -- the listing is in there
+    Mock.list, Mock.total = whole, 120
+
+    local reads = 0
+    local info, link = GetAuctionItemInfo, GetAuctionItemLink
+    GetAuctionItemInfo = function(...) reads = reads + 1 return info(...) end
+    GetAuctionItemLink = function(...) reads = reads + 1 return link(...) end
+    local ok = ns.Flip.Buy(BAG, BAG_NAME)
+    GetAuctionItemInfo, GetAuctionItemLink = info, link
+
+    T.eq(ok, false)
+    T.eq(#Mock.bought, 0, "nothing is bought out of a list that big")
+    T.ok(reads <= 4, "only the fingerprint of the page was read, not " .. reads .. " calls")
+    T.eq(ns.Flip.State(BAG), "finding", "the page is searched for instead")
+    T.eq(#Mock.queries, 1)
+    answer(ns)
+    T.eq(ns.Flip.State(BAG), "ready")
+    T.eq(#Mock.bought, 0)
+  end,
+
+  -- Flip.Tick runs every frame: with nothing waiting for an answer it must not
+  -- build a table each time.
+  tick_with_nothing_waiting_allocates_nothing = function(T)
+    local ns = setup()
+    local function allocated(fn)
+      collectgarbage("collect")
+      collectgarbage("stop")
+      local before = collectgarbage("count")
+      fn()
+      local after = collectgarbage("count")
+      collectgarbage("restart")
+      return after - before
+    end
+    local function ticks() for _ = 1, 200 do ns.Flip.Tick(0.016) end end
+
+    T.eq(allocated(ticks), 0, "nothing tracked")
+
+    -- a bought row stays tracked, but it waits for nothing
+    ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(ns.Flip.State(BAG), "bought")
+    T.eq(allocated(ticks), 0, "only a bought row")
+    T.eq(ns.Flip.State(BAG), "bought")
+
+    -- a search in progress still times out
+    local searching = setup()
+    leavePage()
+    searching.Flip.Buy(BAG, BAG_NAME)
+    T.eq(searching.Flip.State(BAG), "finding")
+    searching.Flip.Tick(11)
+    T.eq(searching.Flip.State(BAG), "idle")
+  end,
 }
