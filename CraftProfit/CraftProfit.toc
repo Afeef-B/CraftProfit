@@ -19,4 +19,5 @@ Flip.lua
 Sell.lua
 SellUI.lua
 Auctions.lua
+AuctionsUI.lua
 Core.lua
