@@ -36,7 +36,7 @@ function Mock.reset()
     local item = Mock.items[id]
     if not item then return nil end
     -- name, link, rarity, level, minLevel, type, subType, maxStack, equipLoc, texture, sellPrice
-    return item.name, Mock.Link(id, item.name), 1, 1, 1, "Misc", "Misc",
+    return item.name, Mock.Link(id, item.name), 1, 1, 1, item.type or "Misc", item.subType or "Misc",
       item.maxStack or 1, "", item.texture or "Interface\\Icons\\INV_Misc_Bag_01", 0
   end
 
@@ -93,10 +93,19 @@ function Mock.reset()
   QueryAuctionItems = function(...)
     local q = { n = select("#", ...), ... }
     Mock.queries[#Mock.queries + 1] = q
-    local name, page, getAll = q[1], q[7] or 0, q[10]
+    local name, class, subclass, page, getAll = q[1], q[5], q[6], q[7] or 0, q[10]
+    -- the AH category filter: the item's type / subtype (Mock.items) must be
+    -- the class / subclass picked from GetAuctionItemClasses / SubClasses
+    local function inCategory(a)
+      if not class then return true end
+      local item = Mock.items[a.id] or {}
+      if (item.type or "Misc") ~= Mock.ahClasses[class] then return false end
+      if not subclass then return true end
+      return (item.subType or "Misc") == (Mock.ahSubClasses[Mock.ahClasses[class]] or {})[subclass]
+    end
     local matches = {}
     for _, a in ipairs(Mock.ah.auctions) do
-      if getAll or a.name:lower():find((name or ""):lower(), 1, true) then
+      if getAll or (a.name:lower():find((name or ""):lower(), 1, true) and inCategory(a)) then
         matches[#matches + 1] = a
       end
     end
@@ -111,6 +120,21 @@ function Mock.reset()
     Mock.pending = true
   end
   CanSendAuctionQuery = function() return Mock.ah.canQuery, Mock.ah.canQueryAll end
+  -- The Browse tab's categories (3.3.5 English names).
+  Mock.ahClasses = { "Weapon", "Armor", "Container", "Consumable", "Glyph", "Trade Goods",
+    "Projectile", "Quiver", "Recipe", "Gem", "Miscellaneous", "Quest" }
+  Mock.ahSubClasses = {
+    ["Trade Goods"] = { "Elemental", "Cloth", "Leather", "Metal & Stone", "Cooking", "Herb",
+      "Enchanting", "Jewelcrafting", "Parts", "Devices", "Explosives", "Materials", "Other",
+      "Armor Enchantment", "Weapon Enchantment" },
+    Gem = { "Red", "Blue", "Yellow", "Purple", "Green", "Orange", "Meta", "Simple", "Prismatic" },
+    Container = { "Bag", "Soul Bag", "Herb Bag", "Enchanting Bag", "Engineering Bag", "Gem Bag",
+      "Mining Bag", "Leatherworking Bag", "Inscription Bag" },
+  }
+  GetAuctionItemClasses = function() return unpack(Mock.ahClasses) end
+  GetAuctionItemSubClasses = function(i)
+    return unpack(Mock.ahSubClasses[Mock.ahClasses[i]] or {})
+  end
   GetNumAuctionItems = function(kind)
     if kind == "owner" then return #Mock.ownerBatch(), #Mock.owned end
     return #Mock.list, Mock.total

@@ -148,7 +148,7 @@ function Buyer.Buy(id, row, name)
   end
 
   local stale = pagePrint() -- before the search replaces what the client shows
-  local ok, err = ns.Scanner.LoadPage(name, row.page)
+  local ok, err = ns.Scanner.LoadPage(name, row.page, id)
   if not ok then return reply(id, row, state, false, loadFailure(err)) end
   setState(id, row, "finding", { stale = stale })
   return reply(id, row, "finding", false, "Finding it...")

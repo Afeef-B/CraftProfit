@@ -2,7 +2,7 @@
 ## Title: CraftProfit
 ## Notes: Scans the Auction House and shows whether your crafts make a profit. CP Sell posts auctions at the best price; CP Auctions shows which of your auctions are undercut; CP Buy finds the cheapest listings.
 ## Author: afefbes1
-## Version: 1.2.0
+## Version: 1.2.1
 ## SavedVariables: CraftProfitDB
 ## SavedVariablesPerCharacter: CraftProfitCharDB
 

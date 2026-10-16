@@ -81,14 +81,40 @@ function Scanner.PriceCheck(item)
   return Scanner.StartTargeted({ item }, { collect = true })
 end
 
+-- The AH searches names by part: "King's Amber" also finds every cut King's
+-- Amber, page after page. Searching in the item's own Browse category (Gem >
+-- Simple) leaves the other items out. class, subclass indexes into
+-- GetAuctionItemClasses / GetAuctionItemSubClasses, or nil (name only) when
+-- the client hasn't cached the item or the AH doesn't list its type.
+local function category(id)
+  if not id then return nil end
+  local _, _, _, _, _, itemType, itemSubType = GetItemInfo(id)
+  if not itemType then return nil end
+  local classes = { GetAuctionItemClasses() }
+  for class, className in ipairs(classes) do
+    if className == itemType then
+      local subs = { GetAuctionItemSubClasses(class) }
+      for subclass, subName in ipairs(subs) do
+        if subName == itemSubType then return class, subclass end
+      end
+      return class, nil
+    end
+  end
+  return nil
+end
+Scanner.Category = category
+
 -- Ask the AH for one results page of a name search so the player can act on
--- it. Not a scan: the scanner stays idle and never reads the answer.
-function Scanner.LoadPage(name, page)
+-- it. Not a scan: the scanner stays idle and never reads the answer. With the
+-- item's id the search is the price check's (same category), so its page
+-- numbers are the same.
+function Scanner.LoadPage(name, page, id)
   if not ahOpen then return false, "closed" end
   if state ~= "idle" then return false, "busy" end
   if not CanSendAuctionQuery() then return false, "throttled" end
+  local class, subclass = category(id)
   Scanner.sending = true
-  local ok, err = pcall(QueryAuctionItems, name, "", "", nil, nil, nil, page, nil, -1, false)
+  local ok, err = pcall(QueryAuctionItems, name, "", "", nil, class, subclass, page, nil, -1, false)
   Scanner.sending = false
   if not ok then return false, "error: " .. tostring(err) end
   return true
@@ -111,8 +137,9 @@ end
 
 local function sendQuery()
   local item = job.items[job.index]
+  local class, subclass = category(item.id)
   Scanner.sending = true
-  local ok, err = pcall(QueryAuctionItems, item.name, "", "", nil, nil, nil, job.page, nil, -1, false)
+  local ok, err = pcall(QueryAuctionItems, item.name, "", "", nil, class, subclass, job.page, nil, -1, false)
   Scanner.sending = false
   if not ok then
     Scanner.Stop("error: " .. tostring(err))

@@ -911,4 +911,53 @@ return {
     for _ = 1, 15 do S.Tick(1) end
     T.ok(#Mock.queries >= 2, "the search was sent again after the timeout")
   end,
+
+  -- The AH searches names by part: "King's Amber" also finds every cut King's
+  -- Amber. Searching in the item's own category (Gem > Simple) leaves them out.
+  category_search_skips_other_items_with_the_name = function(T)
+    local ns, Scanner, Prices = load()
+    local KING, CUT = 36919, 40123
+    Mock.items[KING] = { name = "King's Amber", type = "Gem", subType = "Simple" }
+    Mock.items[CUT] = { name = "Brilliant King's Amber", type = "Gem", subType = "Yellow" }
+    local auctions = {}
+    for i = 1, 120 do auctions[i] = auction(CUT, "Brilliant King's Amber", 1, 1500000, "Cutter" .. i) end
+    for i = 1, 3 do auctions[#auctions + 1] = auction(KING, "King's Amber", 1, 2000000 + i, "Miner" .. i) end
+    Mock.ah.auctions = auctions
+    T.ok(Scanner.PriceCheck({ id = KING, name = "King's Amber" }))
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1, "one page, not three")
+    local q = Mock.queries[1]
+    T.eq(Mock.ahClasses[q[5]], "Gem")
+    T.eq(Mock.ahSubClasses.Gem[q[6]], "Simple")
+    T.eq(#ns.Listings.Get(KING), 3)
+    T.eq(Prices.GetAH(KING), 2000001)
+  end,
+
+  unknown_category_searches_by_name_only = function(T)
+    local ns, Scanner = load()
+    local ODD = 99999
+    Mock.items[ODD] = { name = "Odd Thing", type = "Nonsense", subType = "Stuff" }
+    Mock.ah.auctions = { auction(ODD, "Odd Thing", 1, 100, "Bob") }
+    T.ok(Scanner.PriceCheck({ id = ODD, name = "Odd Thing" }))
+    T.ok(Mock.pump(ns))
+    T.eq(Mock.queries[1][5], nil, "no class filter for a type the AH doesn't list")
+    T.eq(#ns.Listings.Get(ODD), 1)
+    -- an item the client hasn't cached: name only, as before
+    local ns2, Scanner2 = load()
+    Mock.ah.auctions = { auction(4242, "Uncached Thing", 1, 100, "Bob") }
+    T.ok(Scanner2.PriceCheck({ id = 4242, name = "Uncached Thing" }))
+    T.ok(Mock.pump(ns2))
+    T.eq(Mock.queries[1][5], nil)
+  end,
+
+  load_page_uses_the_same_category = function(T)
+    local ns, Scanner = load()
+    local KING = 36919
+    Mock.items[KING] = { name = "King's Amber", type = "Gem", subType = "Simple" }
+    T.ok(Scanner.LoadPage("King's Amber", 2, KING))
+    local q = Mock.queries[#Mock.queries]
+    T.eq(q[7], 2)
+    T.eq(Mock.ahClasses[q[5]], "Gem", "the page numbers match the price check's")
+    T.eq(Mock.ahSubClasses.Gem[q[6]], "Simple")
+  end,
 }

@@ -204,6 +204,9 @@ the list.
 ## CP Buy
 
 The normal Auction House search doesn't sort by price per item. CP Buy does.
+It also searches only the item's own category (for example Gem > Simple for
+an uncut King's Amber), so items that merely share the name, like the cut
+King's Ambers, don't come back. Every CraftProfit scan works that way.
 
 1. **Find the item.** Type its name in the search box and press Enter (or
    Search). Or keep your Tailoring window open next to the Auction House and
