@@ -1223,6 +1223,132 @@ return {
     T.eq(ns3.Sell.State().canPost, true)
   end,
 
+  -- The server refuses a single-stack post: no multisell event follows, only the
+  -- game's error message (Core routes UI_ERROR_MESSAGE here).
+  post_error_clears_single_stack_lock = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    putBag(ns, 1)
+    ns.Sell.SetUnit(gold(400))
+    T.eq(ns.Sell.Post(), true)
+    T.eq(ns.Sell.State().reason, "posting")
+    changes.n = 0
+
+    ns.Sell.OnPostError("You do not have enough money.")
+    local s = ns.Sell.State()
+    T.eq(s.status, "You do not have enough money.")
+    T.eq(s.reason, nil, "Post is free again")
+    T.eq(s.canPost, true)
+    T.eq(changes.n, 1, "announced once")
+    T.eq(#Mock.started, 1, "an error never posts anything")
+
+    T.eq(ns.Sell.Post(), true, "the player can try again")
+    T.eq(#Mock.started, 2)
+  end,
+
+  -- A multisell ends through its own UPDATE / FAILURE events; an unrelated error
+  -- in the middle of it ("You are too far away") must not free Post.
+  post_error_ignored_during_multisell = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    putBag(ns, 3)
+    ns.Sell.SetUnit(gold(400))
+    ns.Sell.SetStacks(3)
+    T.eq(ns.Sell.Post(), true)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 3)
+    changes.n = 0
+
+    ns.Sell.OnPostError("Can't do that while moving.")
+    local s = ns.Sell.State()
+    T.eq(s.status, "Posting 0/3", "the progress line stays")
+    T.eq(s.reason, "posting")
+    T.eq(ns.Sell.Post(), false, "Post is still locked")
+    T.eq(#Mock.started, 1)
+
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 1, 3)
+    ns.Sell.OnPostError("Can't do that while moving.")
+    T.eq(ns.Sell.State().status, "Posting 1/3")
+    T.eq(ns.Sell.State().reason, "posting")
+    T.eq(changes.n, 1, "only the progress update was announced")
+
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 3, 3)
+    T.eq(ns.Sell.State().reason, nil, "the multisell freed Post itself")
+  end,
+
+  -- The "multisell seen" mark belongs to one post: the next post is judged afresh.
+  post_error_mark_resets_for_the_next_post = function(T)
+    local ns = setup()
+    putBag(ns, 3)
+    ns.Sell.SetUnit(gold(400))
+    ns.Sell.SetStacks(2)
+    T.eq(ns.Sell.Post(), true)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 2)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 2, 2)
+    T.ok(Mock.pump(ns), "the check after posting finished")
+
+    ns.Sell.SetStacks(1)
+    T.eq(ns.Sell.Post(), true)
+    ns.Sell.OnPostError("Item not found.")
+    T.eq(ns.Sell.State().reason, nil, "no multisell started for this single post")
+    T.eq(ns.Sell.State().status, "Item not found.")
+  end,
+
+  post_error_ignored_when_not_posting = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    ns.Sell.OnPostError("You are too far away.")      -- nothing in the slot
+    T.eq(ns.Sell.State().status, "")
+    T.eq(changes.n, 0)
+
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    putBag(ns, 2)
+    changes.n = 0
+    ns.Sell.OnPostError("You are too far away.")      -- an item, but no post
+    local s = ns.Sell.State()
+    T.eq(s.status, "")
+    T.eq(s.canPost, true)
+    T.eq(changes.n, 0, "nothing to announce")
+
+    -- a finished post does not take a later error either
+    ns.Sell.SetStacks(1)
+    T.eq(ns.Sell.Post(), true)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_FAILURE")
+    changes.n = 0
+    ns.Sell.OnPostError("You are too far away.")
+    T.eq(ns.Sell.State().status, "Posting failed")
+    T.eq(changes.n, 0)
+  end,
+
+  ah_close_clears_posting = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    putBag(ns, 3)
+    ns.Sell.SetUnit(gold(400))
+    ns.Sell.SetStacks(3)
+    T.eq(ns.Sell.Post(), true)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 3)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 1, 3)
+    T.eq(ns.Sell.State().reason, "posting")
+    changes.n = 0
+
+    ns.Sell.OnAuctionHouseClosed()                    -- the game empties its slot
+    local s = ns.Sell.State()
+    T.eq(s.status, "", "no stale progress line")
+    T.ok(s.reason ~= "posting", "the lock is gone")
+    T.eq(changes.n, 1, "announced")
+
+    -- the lock does not come back when the AH opens again with the item
+    ns.Sell.OnPostError("Late error.")
+    T.eq(ns.Sell.State().status, "", "not posting any more")
+    T.eq(ns.Sell.Post(), true, "a new post is possible")
+
+    -- a message left over from an earlier post goes too
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_FAILURE")
+    T.eq(ns.Sell.State().status, "Posting failed")
+    ns.Sell.OnAuctionHouseClosed()
+    T.eq(ns.Sell.State().status, "")
+  end,
+
   start_auction_only_in_post = function(T)
     local f = assert(io.open(Mock.root .. "Sell.lua", "r"))
     local src = f:read("*a")

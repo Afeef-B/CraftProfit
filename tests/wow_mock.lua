@@ -311,6 +311,17 @@ function FrameMethods.IsVisible(self)
   return true
 end
 function FrameMethods.SetShown(self, v) self._shown = v and true or false end
+-- Event registration is tracked so a test can see which events a frame listens to.
+function FrameMethods.RegisterEvent(self, event)
+  self._events = self._events or {}
+  self._events[event] = true
+end
+function FrameMethods.UnregisterEvent(self, event)
+  if self._events then self._events[event] = nil end
+end
+function FrameMethods.IsEventRegistered(self, event)
+  return self._events ~= nil and self._events[event] == true
+end
 function FrameMethods.SetScript(self, kind, fn) self._scripts[kind] = fn end
 function FrameMethods.GetScript(self, kind) return self._scripts[kind] end
 -- SetText / SetNumber fire OnTextChanged(self, userInput = false) like an edit

@@ -12,6 +12,10 @@ local RUNTIME_EVENTS = {
   "TRADE_SKILL_SHOW", "TRADE_SKILL_UPDATE", "TRADE_SKILL_CLOSE",
   "MERCHANT_SHOW", "MERCHANT_UPDATE",
   "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "AUCTION_ITEM_LIST_UPDATE",
+  -- CP Sell and CP Auctions
+  "NEW_AUCTION_UPDATE", "AUCTION_OWNED_LIST_UPDATE",
+  "AUCTION_MULTISELL_START", "AUCTION_MULTISELL_UPDATE", "AUCTION_MULTISELL_FAILURE",
+  "PLAYER_MONEY", "UI_ERROR_MESSAGE",
 }
 local BUTTON_REFRESH = 0.5
 
@@ -76,10 +80,15 @@ function Core.InitDB()
   ns.Recipes.SetDB(CraftProfitCharDB)
   ns.Scanner.SetDB(db)
   ns.UI.SetDB(db)
+  -- This character joins the ones whose auctions count as "you".
+  ns.Listings.SetDB(db, Util.RealmKey(), UnitName("player"))
+  ns.Sell.SetDB(db)
+  ns.Auctions.SetDB(db)
 end
 
 function Core.OnUpdate(_, elapsed)
   ns.Scanner.Tick(elapsed)
+  ns.Flip.Tick(elapsed)
   ns.Recipes.Tick(elapsed)
   sinceButtons = sinceButtons + elapsed
   if sinceButtons >= BUTTON_REFRESH then
@@ -88,7 +97,7 @@ function Core.OnUpdate(_, elapsed)
   end
 end
 
-function Core.OnEvent(event, arg1)
+function Core.OnEvent(event, arg1, arg2)
   if event == "PLAYER_LOGIN" then
     Core.InitDB()
     for _, e in ipairs(RUNTIME_EVENTS) do frame:RegisterEvent(e) end
@@ -114,8 +123,30 @@ function Core.OnEvent(event, arg1)
     ns.Prices.RecordMerchant()
   elseif event == "AUCTION_HOUSE_SHOW" then
     ns.UI.ShowPanel()
-  elseif event == "AUCTION_HOUSE_CLOSED" or event == "AUCTION_ITEM_LIST_UPDATE" then
+    -- Not before the first show: addons that add AH tabs (Auctionator) build
+    -- theirs when the AH UI loads, and ours take the first ids left after them.
+    ns.Tabs.Ensure()
+  elseif event == "AUCTION_ITEM_LIST_UPDATE" then
     ns.Scanner.HandleEvent(event)
+    ns.Flip.OnListUpdate()
+  elseif event == "AUCTION_HOUSE_CLOSED" then
+    ns.Scanner.HandleEvent(event)   -- stops a running scan first
+    ns.Flip.Reset()
+    ns.Sell.OnAuctionHouseClosed()
+  elseif event == "NEW_AUCTION_UPDATE" then
+    ns.Sell.OnSlotChanged(nil)      -- no new item: the one shown stays
+  elseif event == "AUCTION_OWNED_LIST_UPDATE" then
+    ns.Auctions.OnOwnedListUpdate()
+  elseif event == "AUCTION_MULTISELL_START" or event == "AUCTION_MULTISELL_UPDATE"
+      or event == "AUCTION_MULTISELL_FAILURE" then
+    ns.Sell.OnMultisell(event, arg1, arg2)
+  elseif event == "PLAYER_MONEY" then
+    ns.Fire("MONEY_CHANGED")
+  elseif event == "UI_ERROR_MESSAGE" then
+    -- arg1 is the message in 3.3.5. Sell first: if the error ends a refused
+    -- post, the page's red error line is drawn after Sell's own status.
+    ns.Sell.OnPostError(arg1)
+    ns.Fire("PAGE_ERROR", arg1)
   end
 end
 
@@ -131,7 +162,7 @@ ns.On("PROFESSION_READY", function()
 end)
 
 frame:RegisterEvent("PLAYER_LOGIN")
-frame:SetScript("OnEvent", function(_, event, arg1) Core.OnEvent(event, arg1) end)
+frame:SetScript("OnEvent", function(_, event, ...) Core.OnEvent(event, ...) end)
 
 -- Item id for a known recipe/material name (any case), else the item cache.
 local function lookupName(name)
@@ -193,6 +224,7 @@ local HELP = {
   "/cp track - track or untrack the selected recipe in your profession window",
   "/cp price <item> <price> - set your own price, e.g. 1.5 or 1g50s; 'clear' removes it",
   "/cp cut <percent> - AH cut (5 normally, 15 at neutral AHs)",
+  "/cp outlier <percent> - a listing under this % of the next one is a mistake (1-99, default 50)",
   "/cp list - print profit for tracked crafts",
   "/cp reset prices - forget scanned AH prices for this realm and faction",
 }
@@ -254,6 +286,20 @@ function commands.cut(rest)
   ns.db.cut = percent / 100
   Util.Print("AH cut set to " .. percent .. "%.")
   ns.Fire("PRICES_CHANGED")
+end
+
+-- A listing under this share of the next one is a "mistake listing" (a flip).
+-- Price checks already stored keep their marks until they are made again.
+function commands.outlier(rest)
+  local percent = tonumber(rest)
+  if not percent or percent < 1 or percent > 99 or percent ~= floor(percent) then
+    Util.Print("Usage: /cp outlier <1-99> (a listing under this % of the next one is a mistake; now "
+      .. floor(ns.Listings.Ratio() * 100 + 0.5) .. ")")
+    return
+  end
+  ns.db.outlierRatio = percent / 100
+  Util.Print("Mistake listings: a listing under " .. percent .. "% of the next one. "
+    .. "Applies to the next price check.")
 end
 
 function commands.diag()

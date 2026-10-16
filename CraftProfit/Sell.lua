@@ -41,6 +41,7 @@ local lastName              -- the sell slot's name for Sell.lastId
 local posting = false
 local postStacks            -- how many auctions that post makes
 local postOwned             -- how many items we could post when it started
+local multisellSeen = false -- a multisell event arrived for this post: it ends through its own events
 
 -- Our price check, as the scanner sees it. Only one runs at a time, and the
 -- scanner has no cancel, so a check for an item the player has since replaced
@@ -462,6 +463,7 @@ function Sell.Post()
   if not s.canPost then return false end
   local price = s.unit * s.stack
   posting, postStacks, postOwned = true, s.stacks, s.item.owned
+  multisellSeen = false
   status = "Posting..."
   StartAuction(price, price, s.duration, s.stack, s.stacks)
   changed()
@@ -472,8 +474,10 @@ end
 -- (created, total), AUCTION_MULTISELL_FAILURE.
 function Sell.OnMultisell(event, a, b)
   if event == "AUCTION_MULTISELL_START" then
+    multisellSeen = true
     status = "Posting 0/" .. tostring(a or 0)
   elseif event == "AUCTION_MULTISELL_UPDATE" then
+    multisellSeen = true
     if a and b and b > 0 and a >= b then
       posting = false
       status = postedText(b)
@@ -487,6 +491,27 @@ function Sell.OnMultisell(event, a, b)
   else
     return
   end
+  changed()
+end
+
+-- UI_ERROR_MESSAGE (Core routes it here with the message). A single-stack post
+-- the server refuses sends no multisell event, so without this "Posting..."
+-- would stick. Only that case is ours: once a multisell has started it ends
+-- through its own UPDATE / FAILURE, and an unrelated error ("Can't do that while
+-- moving") must not free Post in the middle of it.
+function Sell.OnPostError(msg)
+  if not posting or multisellSeen then return end
+  posting = false
+  status = (msg and msg ~= "") and msg or "Posting failed"
+  changed()
+end
+
+-- The Auction House closed. The game empties its sell slot then, and no
+-- multisell or slot event will say how the post ended: drop the lock and
+-- whatever the status line said about it.
+function Sell.OnAuctionHouseClosed()
+  posting = false
+  status = ""
   changed()
 end
 
