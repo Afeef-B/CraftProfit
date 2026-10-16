@@ -28,6 +28,7 @@ local writing = false -- the page is writing into its own Need box: not the play
 local recipeId     -- the recipe the materials list is for
 local selected     -- the row the player clicked
 local shownId      -- the item the table last drew
+local drawnStatus  -- Buy.Status() as last drawn: a reply on the line stays until it changes
 
 local function place(frame, page, r)
   frame:SetPoint("TOPLEFT", page, "TOPLEFT", r.x, -r.y)
@@ -79,9 +80,8 @@ local function onMaterial(self)
   local m = self.material
   if not m then return end
   selected = nil
-  local _, link = GetItemInfo(m.id)
-  if link then Buy.SearchLink(link) else Buy.Search(m.name) end
-  Buy.SetNeed(math.max(0, m.need - m.have))
+  Buy.SearchItem(m.id, m.name)
+  Buy.SetNeed(math.max(0, m.need - m.have)) -- 0: you have enough
   BuyUI.Update()
 end
 
@@ -123,10 +123,18 @@ end
 
 local function createMaterials(page)
   local box = panel(page, "materials", "CraftProfitBuyMaterialsPanel", "Materials")
-  local pick = Style.Button(box, "CraftProfitBuyMaterialsFor", "Materials for: pick a recipe", 240)
+  local pick = Style.Button(box, "CraftProfitBuyMaterialsFor", "", 240)
   pick:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -22)
   pick:SetScript("OnClick", onMaterialsFor)
   BuyUI.materialsFor = pick
+  -- The button's own label has no width limit; this one is cut to the button.
+  local label = Style.Text(pick, "title")
+  label:SetPoint("CENTER", pick, "CENTER", 0, 1)
+  label:SetWidth(pick:GetWidth() - 16)
+  label:SetHeight(14)
+  label:SetJustifyH("CENTER")
+  label:SetText("Materials for: pick a recipe")
+  BuyUI.materialsLabel = label
   local crafts = Style.Text(box, "label")
   crafts:SetPoint("TOPLEFT", box, "TOPLEFT", 260, -27)
   crafts:SetText("Crafts")
@@ -205,13 +213,18 @@ local function drawMaterials()
   local list = {}
   if recipeId then
     local recipe = ns.Recipes.Get(recipeId)
-    if recipe then BuyUI.materialsFor:SetText("Materials for: " .. recipe.name) end
+    if recipe then BuyUI.materialsLabel:SetText("Materials for: " .. recipe.name) end
     list = Buy.Materials(recipeId, tonumber(BuyUI.crafts:GetText()) or 1)
   end
+  -- More materials than lines: the last line says how many are not shown.
+  local shown = #list > MATERIAL_LINES and MATERIAL_LINES - 1 or MATERIAL_LINES
   for i, line in ipairs(BuyUI.materials) do
-    local m = list[i]
+    local m = i <= shown and list[i] or nil
     line.material = m
-    if m then
+    if not m and i == MATERIAL_LINES and #list > MATERIAL_LINES then
+      line.text:SetText("|cff808080... and " .. (#list - shown) .. " more|r")
+      line:Show()
+    elseif m then
       local color = m.have >= m.need and GOOD or "|cffffffff"
       line.text:SetText(m.name .. "  " .. color .. m.have .. "/" .. m.need .. "|r")
       line:Show()
@@ -285,12 +298,20 @@ function BuyUI.Update()
   drawMaterials()
   drawNeed()
   drawButtons(id)
-  BuyUI.status:SetText(Buy.Status())
+  -- A reply ("Not enough gold", "Finding it...") stays on the line until
+  -- Buy's own status moves on (a purchase, a new search).
+  local status = Buy.Status()
+  if status ~= drawnStatus then
+    drawnStatus = status
+    BuyUI.status:SetText(status)
+  end
 end
 
 -- PAGE_STATUS / PAGE_ERROR carry no page id: shown only while this page is.
+-- With a need set the count stays in view after the reply.
 local function showMessage(text)
   if not built or not ns.Tabs.IsShown("buy") then return end
+  if Buy.Target() and text ~= "" then text = text .. " - " .. Buy.Status() end
   BuyUI.status:SetText(text)
 end
 
@@ -308,6 +329,7 @@ end)
 ns.On("PAGE_SHOWN", function(key)
   if key ~= "buy" then return end
   BuyUI.Build()
+  drawnStatus = nil -- a message left from an earlier visit goes
   BuyUI.Update()
 end)
 ns.On("BUY_CHANGED", BuyUI.Update)

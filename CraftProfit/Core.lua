@@ -89,6 +89,7 @@ end
 function Core.OnUpdate(_, elapsed)
   ns.Scanner.Tick(elapsed)
   ns.Buyer.Tick(elapsed)
+  ns.Buy.Tick(elapsed)
   ns.Recipes.Tick(elapsed)
   sinceButtons = sinceButtons + elapsed
   if sinceButtons >= BUTTON_REFRESH then

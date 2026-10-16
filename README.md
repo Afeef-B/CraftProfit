@@ -215,7 +215,10 @@ The normal Auction House search doesn't sort by price per item. CP Buy does.
    recipes and type how many **Crafts** you want. Each material shows "have /
    need" (green when you have enough). It follows the recipe's ready-made /
    from-scratch choice. Click a material to search it with **Need** already
-   filled in (what you still lack).
+   filled in (what you still lack); if you already have enough it says "You
+   have enough." Items you buy arrive by **mail**, so "have" only goes up once
+   you collect them. A list with more than 6 materials ends with "... and N
+   more".
 3. **The list** on the right is cheapest per item first: quantity, price each,
    price of the stack, seller. A mistake listing shows a green **deal**: on
    this page it is simply the best buy. Your own and your alts' listings show
@@ -229,7 +232,12 @@ The normal Auction House search doesn't sort by price per item. CP Buy does.
 5. **Buy this** buys exactly the listing you clicked in the list.
 
 If the listing isn't on the Auction House page that's loaded, the first click
-says "Finding it..." and loads it; click again to buy.
+says "Finding it..." and loads it; click again to buy. If a listing has
+already been bought by someone else, the page says "That listing is gone."
+and searches the item again by itself, so the next click buys the next
+cheapest. Shift-clicking a stackable item in your bags also opens the game's
+"split stack" box; just close it (or shift-click the reagent in your
+Tailoring window instead).
 
 ### Alts
 

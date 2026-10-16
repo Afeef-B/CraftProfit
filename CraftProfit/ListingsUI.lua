@@ -175,6 +175,7 @@ function ListingsUI.Create(parent, name, onRowClick, opts)
   tbl.title = Style.Text(frame, "title")
   tbl.title:SetPoint("TOPLEFT", frame, "TOPLEFT", ICON_SIZE + 4, -2)
   tbl.title:SetWidth(WIDTH - ICON_SIZE - 4)
+  tbl.title:SetHeight(16) -- one line: a long title is cut, never wrapped into the header
   tbl.title:SetText("")
 
   for _, col in ipairs(COLUMNS) do

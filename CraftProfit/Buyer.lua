@@ -24,6 +24,11 @@ local LINK_WAIT = 2     -- seconds to wait for item links / seller names on it
 local track = {}
 local finding = 0 -- entries in "finding": Tick does nothing (allocates nothing) at 0
 
+-- After a buyout the client keeps showing the sold auction until the server's
+-- refresh arrives. Indexes bid on while the page is still that same page are
+-- not bid on again: an identical stack further down is another auction.
+local bidPrint, bidIndexes = nil, {}
+
 local function setState(id, row, state, extra)
   local old = track[row]
   if old and old.state == "finding" then finding = finding - 1 end
@@ -80,6 +85,8 @@ end
 -- count, buyout and seller), or nil. The second result is true when part of the
 -- page cannot be read yet (item links or seller names still loading), so a
 -- missing match proves nothing.
+Buyer.PagePrint = pagePrint
+
 local function findOnPage(id, row)
   local unreadable = false
   local batch = GetNumAuctionItems("list")
@@ -87,13 +94,14 @@ local function findOnPage(id, row)
   -- row by row would be ~100k API calls in one click: treat it as a page that
   -- cannot be read.
   if batch > PAGE_SIZE then return nil, true end
+  local spent = bidPrint ~= nil and bidPrint == pagePrint() and bidIndexes or nil
   for i = 1, batch do
     local link = GetAuctionItemLink("list", i)
     local _, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
     if not link or not owner then
       unreadable = true
-    elseif ns.Util.ItemIDFromLink(link) == id and count == row.count
-        and buyout == row.buyout and owner == row.seller then
+    elseif not (spent and spent[i]) and ns.Util.ItemIDFromLink(link) == id
+        and count == row.count and buyout == row.buyout and owner == row.seller then
       return i
     end
   end
@@ -127,6 +135,9 @@ function Buyer.Buy(id, row, name)
 
   local index = findOnPage(id, row)
   if index then
+    local print = pagePrint()
+    if print ~= bidPrint then bidPrint, bidIndexes = print, {} end
+    bidIndexes[index] = true
     PlaceAuctionBid("list", index, row.buyout)
     -- The client refreshes the list after a buyout. A scan that is waiting for
     -- its own answer would take that refresh for it: have it ask again.
@@ -155,6 +166,7 @@ local function evaluate(row, entry, force)
   elseif force or not unreadable then
     say(entry.id, row, "gone", "That listing is gone.")
     setState(entry.id, row, "gone")
+    ns.Fire("BUYER_LOST", entry.id, row)
   else
     -- Names still loading; the client sends another update when they are.
     entry.linkWait = entry.linkWait or 0
@@ -183,8 +195,10 @@ function Buyer.Tick(elapsed)
         if entry.linkWait >= LINK_WAIT then evaluate(row, entry, true) end
       end
       if track[row] == entry and entry.waited >= FIND_TIMEOUT then
-        say(entry.id, row, "idle", "Couldn't find it - try again")
+        local id = entry.id
+        say(id, row, "idle", "Couldn't find it - try again")
         forget(row)
+        ns.Fire("BUYER_LOST", id, row)
       end
     end
   end

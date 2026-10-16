@@ -296,4 +296,10 @@ return {
     tbl:SetRows(manyRows(ns, 15))
     T.eq(tbl.lines[10]:IsShown(), true)
   end,
+
+  title_has_a_fixed_height = function(T)
+    local ns = load()
+    local tbl = ns.ListingsUI.Create(UIParent, NAME .. "Title")
+    T.eq(tbl.title:GetHeight(), 16, "one line: a long title is cut, not wrapped into the header")
+  end,
 }

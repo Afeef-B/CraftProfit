@@ -95,6 +95,49 @@ return {
     end
   end,
 
+  -- Who may start a purchase: Buyer.Buy is called by Flip.Buy and by CP Buy's
+  -- two buy functions only, and those are called only from their buttons'
+  -- click handlers in FlipUI / BuyUI.
+  purchase_callers_are_pinned = function(T)
+    local callers = { ["Buyer.Buy"] = {}, ["Buy.BuyCheapest"] = {}, ["Buy.BuyRow"] = {}, ["Flip.Buy"] = {} }
+    for _, path in ipairs(addonFiles()) do
+      local src = code(read(path))
+      local base = path:match("[^/]+$")
+      for name, where in pairs(callers) do
+        local _, calls = uses(src, name)
+        -- the definition "function X(" is not a call site
+        local defs = 0
+        for _ in src:gmatch("function%s+" .. name:gsub("%.", "%%.") .. "%s*%(") do defs = defs + 1 end
+        if calls - defs > 0 then where[base] = (where[base] or 0) + calls - defs end
+      end
+    end
+    local function only(name, expected)
+      local got = {}
+      for base, n in pairs(callers[name]) do got[#got + 1] = base .. "=" .. n end
+      table.sort(got)
+      T.eq(table.concat(got, " "), expected, name .. " call sites")
+    end
+    only("Buyer.Buy", "Buy.lua=2 Flip.lua=1")
+    only("Flip.Buy", "Flip.lua=1")
+    only("Buy.BuyCheapest", "BuyUI.lua=1")
+    only("Buy.BuyRow", "BuyUI.lua=1")
+
+    -- and in BuyUI they sit inside the click handlers wired to the buttons
+    local ui = code(read(Mock.root .. "BuyUI.lua"))
+    local cheapest = ui:match("local function onBuyCheapest%(%)(.-)\nend")
+    local row = ui:match("local function onBuyRow%(%)(.-)\nend")
+    T.ok(cheapest and cheapest:find("Buy.BuyCheapest(", 1, true), "BuyCheapest in onBuyCheapest")
+    T.ok(row and row:find("Buy.BuyRow(", 1, true), "BuyRow in onBuyRow")
+    local raw = read(Mock.root .. "BuyUI.lua")
+    T.ok(raw:find('SetScript("OnClick", onBuyCheapest)', 1, true), "wired to a click")
+    T.ok(raw:find('SetScript("OnClick", onBuyRow)', 1, true), "wired to a click")
+    for _, handler in ipairs({ "onBuyCheapest", "onBuyRow" }) do
+      local _, calls = uses(ui, handler)
+      local _, defs = ui:gsub("local function " .. handler .. "%(", "")
+      T.eq(calls - defs, 0, handler .. " is only passed to SetScript, never called by other code")
+    end
+  end,
+
   -- The scrubber behind the test above: a mention in a comment or a string is
   -- not a call, a call is, and the neighbours of the names are told apart.
   call_site_counter = function(T)

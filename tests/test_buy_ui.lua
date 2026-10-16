@@ -201,4 +201,52 @@ return {
     T.eq(ns.Buy.Need(), nil)
     T.eq(CraftProfitBuyNeed:GetText(), "")
   end,
+
+  replies_stay_on_the_status_line_with_a_need = function(T)
+    local ns = setup({ cloth("A", 5, silver(9)) })
+    openBuy()
+    search(ns, CLOTH_NAME)
+    CraftProfitBuyNeed:SetText("40")
+    Mock.money = 10
+    click(CraftProfitBuyCheapest)
+    local zero = "Bought 0 of 40 (spent " .. ns.Style.Money(0) .. ")"
+    T.eq(ns.BuyUI.status:GetText(), "Not enough gold - " .. zero)
+    ns.Fire("BUY_CHANGED")                     -- a redraw keeps the reply
+    T.eq(ns.BuyUI.status:GetText(), "Not enough gold - " .. zero)
+    -- a purchase: the reply and the new count
+    Mock.money = 1000 * 10000
+    click(CraftProfitBuyCheapest)
+    T.eq(ns.BuyUI.status:GetText(), "Bid placed for " .. ns.Util.FormatMoney(5 * silver(9))
+      .. " - Bought 5 of 40 (spent " .. ns.Style.Money(5 * silver(9)) .. ")")
+  end,
+
+  recipe_label_fits_its_button = function(T)
+    local ns = setup()
+    local long = "Mystic Frostwoven Shoulderpads of the Long Name"
+    ns.Recipes.All()[BAG] = { name = long, made = 1, reagents = { { id = BOLT, name = BOLT_NAME, count = 2 } } }
+    ns.Recipes.SetTracked(BAG, true)
+    openBuy()
+    click(CraftProfitBuyMaterialsFor)
+    Mock.menu[1].func()
+    local label = ns.BuyUI.materialsLabel
+    T.ok(label:GetText():find(long, 1, true))
+    T.ok(label:GetWidth() > 0 and label:GetWidth() <= CraftProfitBuyMaterialsFor:GetWidth() - 16,
+      "the label is cut to the button, it does not spill over the Crafts box")
+    T.eq(CraftProfitBuyMaterialsFor:GetText(), "", "the button's own label is not used")
+  end,
+
+  more_materials_than_lines_says_so = function(T)
+    local ns = setup()
+    local reagents = {}
+    for i = 1, 8 do reagents[i] = { id = 50000 + i, name = "Thing " .. i, count = 1 } end
+    ns.Recipes.All()[BAG] = { name = BAG_NAME, made = 1, reagents = reagents }
+    ns.Recipes.SetTracked(BAG, true)
+    openBuy()
+    click(CraftProfitBuyMaterialsFor)
+    Mock.menu[1].func()
+    local lines = ns.BuyUI.materials
+    T.ok(lines[5].material, "the first five are materials")
+    T.eq(lines[#lines].material, nil, "the last line is not a material")
+    T.ok(lines[#lines].text:GetText():find("and 3 more", 1, true), lines[#lines].text:GetText())
+  end,
 }

@@ -126,7 +126,9 @@ function Mock.reset()
     local a = Mock.list[i]
     local owner = nil
     if not Mock.ah.nilOwners then owner = a.seller or "Seller" end
-    return a.name, "tex", a.count, 1, 1, 80, 1, 0, a.buyout, 0, nil, owner
+    local name = a.name
+    if Mock.ah.nilNames then name = nil end -- item names not loaded yet
+    return name, "tex", a.count, 1, 1, 80, 1, 0, a.buyout, 0, nil, owner
   end
   GetAuctionItemLink = function(kind, i)
     local a = (kind == "owner" and Mock.ownerBatch() or Mock.list)[i]
@@ -188,8 +190,19 @@ function Mock.reset()
     local a = Mock.list[i]
     Mock.bought[#Mock.bought + 1] = { kind = kind, index = i, amount = amount, auction = a }
     if kind ~= "list" or not a then return end
-    table.remove(Mock.list, i)
-    Mock.total = math.max(0, Mock.total - 1)
+    -- Mock.staleList: like the real client, the page keeps showing the sold
+    -- auction until the server's refresh (the next query) arrives. A bid on an
+    -- auction that is already sold buys nothing.
+    if Mock.staleList then
+      if a._sold then
+        Mock.bought[#Mock.bought].refused = true
+        return
+      end
+      a._sold = true
+    else
+      table.remove(Mock.list, i)
+      Mock.total = math.max(0, Mock.total - 1)
+    end
     for j, auction in ipairs(Mock.ah.auctions) do
       if auction == a then
         table.remove(Mock.ah.auctions, j)

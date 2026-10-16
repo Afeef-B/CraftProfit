@@ -11,6 +11,8 @@ local Buy = ns.Buy
 
 local PAGE_SIZE = NUM_AUCTION_ITEMS_PER_PAGE or 50
 local WAIT_SCAN = "Waiting for the current scan..."
+local NAME_WAIT = 2     -- seconds to wait for item names still loading on the page
+local RETRY = 0.5       -- seconds between tries of a search the AH refused for now
 
 local current      -- { id, name }: the item shown
 local need         -- how many the player wants, or nil
@@ -18,7 +20,11 @@ local bought, spent = 0, 0
 local counted = {} -- row -> true once its purchase is counted
 local message = "" -- the last thing to say when no need is set
 local wanted       -- a search that waits for the scanner: { text } or { id, name }
-local resolving    -- a typed name being looked up on the AH's first results page
+local retryWait = 0
+-- A typed name being looked up on the AH's first results page:
+-- { text, stale = fingerprint of the page shown before, waiting = seconds
+-- spent on a page whose names are still loading }.
+local resolving
 
 local function changed()
   ns.Fire("BUY_CHANGED")
@@ -34,6 +40,7 @@ end
 
 -- Show item id and price-check it; a busy scanner runs it when it is done.
 local function start(id, name)
+  resolving = nil -- whatever the player asks for now wins over a lookup in flight
   if not current or current.id ~= id then
     need = nil
     resetCount()
@@ -61,6 +68,7 @@ function Buy.Search(text)
   local id = link and ns.Util.ItemIDFromLink(link)
   if id then return start(id, name) end
 
+  local stale = ns.Buyer.PagePrint()
   local ok, err = ns.Scanner.LoadPage(text, 0)
   if not ok then
     if err == "busy" or err == "throttled" then
@@ -71,9 +79,16 @@ function Buy.Search(text)
     changed()
     return false, err
   end
-  resolving, message = text, "Searching..."
+  resolving, message = { text = text, stale = stale }, "Searching..."
   changed()
   return true
+end
+
+-- Search an item whose id is known (a material of a recipe).
+function Buy.SearchItem(id, name)
+  name = name or GetItemInfo(id)
+  if not id or not name then return false, "no-name" end
+  return start(id, name)
 end
 
 -- Search the item of a link (a shift-clicked reagent, bag item, chat link).
@@ -81,29 +96,68 @@ function Buy.SearchLink(link)
   local id = ns.Util.ItemIDFromLink(link)
   if not id then return false, "no-item" end
   local name = ns.Util.ItemNameFromLink(link) or GetItemInfo(id)
+  if not name then
+    message = "That item isn't loaded yet - try again."
+    changed()
+    return false, "no-name"
+  end
   return start(id, name)
 end
 
--- AUCTION_ITEM_LIST_UPDATE (routed by Core): the answer to a name lookup.
-function Buy.OnListUpdate()
-  if not resolving then return end
+-- Decide a lookup from the page the client shows. `force`: names that are
+-- still loading are given up on.
+local function decide(force)
+  local text = resolving.text
   local batch = GetNumAuctionItems("list")
   if batch > PAGE_SIZE then return end -- a whole-AH list, not our page
-  local wantedName = resolving:lower()
+  local wantedName, unreadable = text:lower(), false
   for i = 1, batch do
     local name = GetAuctionItemInfo("list", i)
-    if name and name:lower() == wantedName then
-      local id = ns.Util.ItemIDFromLink(GetAuctionItemLink("list", i))
+    local link = GetAuctionItemLink("list", i)
+    if not name or not link then
+      unreadable = true
+    elseif name:lower() == wantedName then
+      local id = ns.Util.ItemIDFromLink(link)
       if id then
-        resolving = nil
         start(id, name)
         return
       end
     end
   end
-  message = "No item called " .. resolving .. " on the Auction House."
+  if unreadable and not force then
+    resolving.waiting = resolving.waiting or 0
+    return
+  end
+  message = "No item called " .. text .. " on the Auction House."
   resolving = nil
   changed()
+end
+
+-- AUCTION_ITEM_LIST_UPDATE (routed by Core): the answer to a name lookup. A
+-- late update for the page shown before the search is not that answer.
+function Buy.OnListUpdate()
+  if not resolving then return end
+  local print = ns.Buyer.PagePrint()
+  if print and print == resolving.stale then return end
+  decide(false)
+end
+
+-- Driven by Core's OnUpdate. Gives up waiting for names after NAME_WAIT and
+-- retries a search the AH refused for now. Never buys.
+function Buy.Tick(elapsed)
+  if resolving and resolving.waiting then
+    resolving.waiting = resolving.waiting + elapsed
+    if resolving.waiting >= NAME_WAIT then decide(true) end
+  end
+  if wanted and not ns.Scanner.IsBusy() then
+    retryWait = retryWait + elapsed
+    if retryWait >= RETRY then
+      retryWait = 0
+      local w = wanted
+      wanted = nil
+      if w.text then Buy.Search(w.text) else start(w.id, w.name) end
+    end
+  end
 end
 
 function Buy.Current()
@@ -114,10 +168,11 @@ function Buy.Rows()
   return current and ns.Listings.Get(current.id) or nil
 end
 
--- nil or <= 0 clears it. A new need starts the count over.
+-- nil clears it; 0 means the player already has enough. A new need starts
+-- the count over.
 function Buy.SetNeed(n)
   n = tonumber(n)
-  need = (n and n > 0) and math.floor(n) or nil
+  need = (n and n >= 0) and math.floor(n) or nil
   resetCount()
   changed()
 end
@@ -144,7 +199,8 @@ function Buy.Pick()
   if remaining == 0 then return nil end
   local fit, smallest, cheapest
   for _, row in ipairs(rows) do
-    if not row.mine and row.seller and (row.buyout or 0) > 0 and not ns.Buyer.IsBought(row) then
+    local state = ns.Buyer.State(row)
+    if not row.mine and row.seller and (row.buyout or 0) > 0 and state ~= "bought" and state ~= "gone" then
       cheapest = cheapest or row
       if remaining and row.count <= remaining and (not fit or row.unit < fit.unit) then fit = row end
       if not smallest or row.buyout < smallest.buyout then smallest = row end
@@ -171,6 +227,7 @@ end
 
 function Buy.Status()
   if need then
+    if need == 0 then return "You have enough." end
     if bought >= need then return "Done (bought " .. bought .. ")" end
     return "Bought " .. bought .. " of " .. need .. " (spent " .. ns.Style.Money(spent) .. ")"
   end
@@ -201,7 +258,8 @@ function Buy.Materials(recipeId, crafts)
       local amount = reagent.count * qty
       local sub = scratch and ns.Recipes.Get(reagent.id)
       if sub and not visiting[reagent.id] then
-        expand(reagent.id, amount / (sub.made or 1), visiting)
+        -- whole crafts: 3 bolts from a recipe that makes 2 take 2 crafts
+        expand(reagent.id, ceil(amount / (sub.made or 1) - 1e-9), visiting)
       else
         add(reagent.id, reagent.name, amount)
       end
@@ -240,6 +298,12 @@ ns.On("LISTINGS_UPDATED", function(id)
     if message == "Searching..." then message = "" end
     changed()
   end
+end)
+
+-- A listing of the shown item could not be found (sold, or the page never
+-- came): search the item again so the list shows what is really there.
+ns.On("BUYER_LOST", function(id)
+  if current and id == current.id then start(current.id, current.name) end
 end)
 
 -- A search that waited for the scanner runs now.
