@@ -148,7 +148,9 @@ installed they sit to the right of Auctionator's.
    empty, and the list stays on that item, with your new auctions as **YOU**,
    until you put another item in. You can't put another item in while the
    post is going ("Wait until the post finishes."). If the server refuses the
-   post, the page shows the game's message and Post comes back.
+   post, the page shows the game's message and Post comes back. If
+   "Posting..." ever stays on for good, close the Auction House and open it
+   again: that resets CP Sell.
 
 ## CP Auctions
 
