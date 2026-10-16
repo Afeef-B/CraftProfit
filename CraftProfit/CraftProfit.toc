@@ -17,4 +17,5 @@ ListingsUI.lua
 Tabs.lua
 Flip.lua
 Sell.lua
+SellUI.lua
 Core.lua

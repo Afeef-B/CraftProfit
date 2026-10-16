@@ -243,6 +243,7 @@ Mock.newObject = newObject
 function FrameMethods.CreateFontString(_, name) return newObject(name) end
 function FrameMethods.CreateTexture(_, name) return newObject(name) end
 function FrameMethods.GetName(self) return self._name end
+function FrameMethods.GetParent(self) return self._parent end
 function FrameMethods.Show(self) self._shown = true end
 function FrameMethods.Hide(self) self._shown = false end
 function FrameMethods.IsShown(self) return self._shown end
@@ -250,8 +251,22 @@ function FrameMethods.IsVisible(self) return self._shown end
 function FrameMethods.SetShown(self, v) self._shown = v and true or false end
 function FrameMethods.SetScript(self, kind, fn) self._scripts[kind] = fn end
 function FrameMethods.GetScript(self, kind) return self._scripts[kind] end
-function FrameMethods.SetText(self, text) self._text = text end
+-- SetText / SetNumber fire OnTextChanged(self, userInput = false) like an edit
+-- box does, so a page that redraws its own inputs is tested against the echo.
+local function textChanged(self)
+  local fn = self._scripts.OnTextChanged
+  if fn then fn(self, false) end
+end
+function FrameMethods.SetText(self, text)
+  self._text = text
+  textChanged(self)
+end
 function FrameMethods.GetText(self) return self._text end
+function FrameMethods.SetNumber(self, n)
+  self._text = tostring(n)
+  textChanged(self)
+end
+function FrameMethods.GetNumber(self) return tonumber(self._text) or 0 end
 function FrameMethods.SetFormattedText(self, fmt, ...) self._text = string.format(fmt, ...) end
 function FrameMethods.SetChecked(self, v) self._checked = v end
 function FrameMethods.GetChecked(self) return self._checked end
@@ -302,7 +317,10 @@ function Mock.installUI()
     if name then
       _G[name] = f
       if template == "FauxScrollFrameTemplate" then _G[name .. "ScrollBar"] = newObject(name .. "ScrollBar") end
-      if template == "UICheckButtonTemplate" then _G[name .. "Text"] = newObject(name .. "Text") end
+      if template == "ItemButtonTemplate" then _G[name .. "IconTexture"] = newObject(name .. "IconTexture") end
+      if template == "UICheckButtonTemplate" or template == "UIRadioButtonTemplate" then
+        _G[name .. "Text"] = newObject(name .. "Text")
+      end
     end
     if template == "AuctionTabTemplate" then
       -- The template's OnClick forwards to the global (looked up at click time,
@@ -342,6 +360,7 @@ function Mock.installUI()
   TradeSkillFrame_SetSelection = function() end
   FauxScrollFrame_Update = function() end
   FauxScrollFrame_GetOffset = function(frame) return frame.offset end
+  FauxScrollFrame_SetOffset = function(frame, offset) frame.offset = offset end
   FauxScrollFrame_OnVerticalScroll = function() end
   StaticPopupDialogs = {}
   StaticPopup_Show = function(which) Mock.popup = which end
@@ -350,6 +369,25 @@ function Mock.installUI()
   EasyMenu = function(menuList, menuFrame, anchor)
     Mock.menu, Mock.menuFrame, Mock.menuAnchor = menuList, menuFrame, anchor
   end
+  -- MoneyInputFrame: the copper amount lives on the frame. Like the client,
+  -- writing it calls the frame's onValueChangedFunc (the box texts changed), so
+  -- a page must not take its own redraw for the player typing.
+  MoneyInputFrame_SetOnValueChangedFunc = function(frame, fn) frame.onValueChangedFunc = fn end
+  MoneyInputFrame_GetCopper = function(frame) return frame._copper or 0 end
+  MoneyInputFrame_SetCopper = function(frame, copper)
+    local changed = (frame._copper or 0) ~= copper
+    frame._copper = copper
+    if changed and frame.onValueChangedFunc then frame.onValueChangedFunc() end
+  end
+  MoneyInputFrame_ResetMoney = function(frame)
+    frame._copper = nil
+    if frame.onValueChangedFunc then frame.onValueChangedFunc() end
+  end
+  -- Alt held down (tests set Mock.alt); Blizzard's bag-click handler, a no-op
+  -- until an addon hooks it.
+  Mock.alt = false
+  IsAltKeyDown = function() return Mock.alt end
+  ContainerFrameItemButton_OnModifiedClick = function() end
   SlashCmdList = {}
   IsAddOnLoaded = function(name) return Mock.loadedAddOns and Mock.loadedAddOns[name] or nil end
   CraftProfitDB, CraftProfitCharDB = nil, nil
