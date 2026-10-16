@@ -5,11 +5,16 @@ crafts make money. It reads your recipes from the profession window, scans
 the Auction House for the materials and the finished item, and shows the
 profit for each craft you track in a panel beside the Auction House.
 
-Since version 1.1 it also helps you **sell**: two extra Auction House tabs,
-**CP Sell** (post an item at the right price) and **CP Auctions** (see which
-of your auctions got undercut, and cancel them). Everything that spends or
-posts something happens only when you click a button. CraftProfit never
-posts, cancels or buys by itself.
+Since version 1.1 it also helps you **sell**, and since 1.2 **buy**: three
+extra Auction House tabs, **CP Sell** (post an item at the right price),
+**CP Auctions** (see which of your auctions got undercut, and cancel them)
+and **CP Buy** (the cheapest listings of an item first, bought one click at a
+time). Everything that spends or posts something happens only when you click
+a button. CraftProfit never posts, cancels or buys by itself.
+
+Every CP page has the same layout inside the Auction House window: boxed
+sections on the left, the item's listings on the right, and a status line
+along the bottom.
 
 ## Install
 
@@ -78,9 +83,10 @@ says "Materials: ready-made" or "Materials: from scratch".
 
 ## CP Sell
 
-Open the Auction House and click the **CP Sell** tab. It is the first of two
-new tabs; they come after the tabs already there, so with Auctionator
-installed they sit to the right of Auctionator's.
+Open the Auction House and click the **CP Sell** tab. It is the first of
+three new tabs (CP Sell, CP Auctions, CP Buy); they come after the tabs
+already there, so with Auctionator installed they sit to the right of
+Auctionator's.
 
 1. **Put an item in.** Drag it from your bags onto the slot, or hold **Alt**
    and click it in your bags. If it can't be auctioned (a soulbound item, a
@@ -122,8 +128,10 @@ installed they sit to the right of Auctionator's.
    it says "That's a mistake listing - use Buy it to flip it." Listings of
    random-enchant items are never marked or offered as a flip.
    Change the 50% with `/cp outlier`.
-5. **Stack size x Stacks.** By default it offers everything you carry: gear
-   one per auction, stackable items in full stacks. Change either box. If you
+5. **Amount (stack x auctions).** By default it posts **one auction of 2**
+   (one of 1 for things that don't stack, like bags), so the rest stays in
+   your bags and you can undercut back when someone undercuts you. Change
+   either box to post more. If you
    ask for more than you have, Post is off and the page says "You only have N."
    A stack size above the item's maximum stack says "Stack size is more than
    N."
@@ -192,6 +200,36 @@ the list.
 - **Undercut** (right) puts the item in CP Sell, ready to relist under the
   others. If you don't have any in your bags (a cancelled auction comes by
   mail) it says "Collect it from your mailbox first."
+
+## CP Buy
+
+The normal Auction House search doesn't sort by price per item. CP Buy does.
+
+1. **Find the item.** Type its name in the search box and press Enter (or
+   Search). Or keep your Tailoring window open next to the Auction House and
+   **shift-click** a reagent in it (or any item in your bags or a chat link)
+   while CP Buy is open: it searches that item. The name must be the item's
+   exact name; searching "Frostweave Cloth" shows only the cloth, not bolts
+   or bags.
+2. **Or pick a recipe.** Click **Materials for:**, choose one of your tracked
+   recipes and type how many **Crafts** you want. Each material shows "have /
+   need" (green when you have enough). It follows the recipe's ready-made /
+   from-scratch choice. Click a material to search it with **Need** already
+   filled in (what you still lack).
+3. **The list** on the right is cheapest per item first: quantity, price each,
+   price of the stack, seller. A mistake listing shows a green **deal**: on
+   this page it is simply the best buy. Your own and your alts' listings show
+   **YOU** and can't be bought.
+4. **Buy cheapest** buys the cheapest listing, one per click. The button says
+   what it will buy ("Buy cheapest: 5 for 1g 20s"). With a **Need** set it
+   skips stacks bigger than what you still need when a smaller one is there,
+   and counts down: "Bought 20 of 40 (spent ...)", then "Done (bought 40)".
+   A bought listing stays greyed ("bought") until the list refreshes, and is
+   never bought twice.
+5. **Buy this** buys exactly the listing you clicked in the list.
+
+If the listing isn't on the Auction House page that's loaded, the first click
+says "Finding it..." and loads it; click again to buy.
 
 ### Alts
 
@@ -309,6 +347,19 @@ once. Use something cheap you don't mind posting, such as a Glacial Bag.
 - [ ] Close the Auction House while on CP Sell and open it again: no Lua
       errors, it opens on the Browse tab, and nothing is searched until you
       ask.
+
+### Buying and the new look (version 1.2)
+
+- [ ] The tabs read CP Sell, CP Auctions, CP Buy, after Auctionator's tabs.
+- [ ] Every CP page fits the Auction House window: no overlapping boxes, no
+      text running out of its box, and the text is easy to read.
+- [ ] CP Sell with 40 bolts fills in **1 auction of 2**; a bag fills in 1 of 1.
+- [ ] With CP Buy open, shift-click a reagent in your Tailoring window: it
+      searches that item. With the chat box open, the link goes to chat.
+- [ ] Search "Frostweave Cloth": only cloth is listed, cheapest per item first.
+- [ ] Set Need 40 and press **Buy cheapest** until it says "Done (bought 40)".
+- [ ] Pick a tracked recipe in **Materials for:**, set Crafts, click a material:
+      it searches it and fills in Need.
 
 ## Development
 

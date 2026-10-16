@@ -5,7 +5,7 @@ local BAG, BOLT, CLOTH, THREAD, DUST = 41599, 41510, 33470, 38426, 34054
 -- Every addon file, in the order of the toc.
 local ALL = {
   "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
-  "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Sell.lua", "SellUI.lua",
+  "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Buy.lua", "BuyUI.lua", "Sell.lua", "SellUI.lua",
   "Auctions.lua", "AuctionsUI.lua", "Core.lua",
 }
 
@@ -897,5 +897,32 @@ return {
     T.eq(stored(), before, "no stored price was cleared")
     T.ok(stopped, "the scan was stopped with that status")
     T.eq(CraftProfitDB.lastScanAll ~= nil, true, "(the request was sent: the cooldown is used)")
+  end,
+
+  list_update_reaches_buy = function(T)
+    local ns = load()
+    local order = {}
+    local buy = spy(ns.Buy, "OnListUpdate", order)
+    local scanner = spy(ns.Scanner, "HandleEvent", order)
+    fire("AUCTION_ITEM_LIST_UPDATE")
+    T.eq(#buy, 1)
+    T.eq(#scanner, 1)
+    T.eq(order[1], "HandleEvent", "the scanner reads the page first")
+  end,
+
+  toc_lists_every_file_in_order = function(T)
+    local f = assert(io.open(Mock.root .. "CraftProfit.toc", "r"))
+    local toc = f:read("*a")
+    f:close()
+    T.ok(toc:find("## Version: 1.2.0", 1, true), "version 1.2.0")
+    local files = {}
+    for line in toc:gmatch("[^\n]+") do
+      if line:match("%.lua$") then files[#files + 1] = line end
+    end
+    T.eq(table.concat(files, " "), table.concat({
+      "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
+      "Buyer.lua", "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Buy.lua", "BuyUI.lua", "Sell.lua",
+      "SellUI.lua", "Auctions.lua", "AuctionsUI.lua", "Core.lua",
+    }, " "))
   end,
 }
