@@ -18,21 +18,24 @@ local TITLE_HEIGHT, HEADER_HEIGHT = 18, 16
 local LEFT, TOP = 10, -6               -- the page's inner margin
 local LIST_WIDTH, SCROLLBAR_WIDTH = 380, 24
 local ROW_WIDTH = LIST_WIDTH - SCROLLBAR_WIDTH
-local FRESH = 60                       -- a check younger than this (seconds) shows no age
+local FLIP_WIDTH = 40                  -- the flip marker's own cell at the right end of a row
+local REDRAW = 15                      -- seconds between the page's own redraws (ages grow)
 
 local WAIT_LIST = "Waiting for the auction list to update..."
 local WAIT_SCAN = "Waiting for the current scan..."
 local NO_ACTIVE = "You have no active auctions."
 
--- Cells of a list row (after the icon): key, x offset, width, header.
+-- Cells of a list row (after the icon): key, x offset, width, header. The
+-- status text clips before it can reach the flip cell.
 local CELLS = {
   { "name", 18, 96, "Item" },
   { "yours", 118, 66, "Yours" },
-  { "status", 188, 168, "Status" },
+  { "status", 188, ROW_WIDTH - 188 - FLIP_WIDTH, "Status" },
 }
 
 local built = false
 local shownId   -- id of the item the right panel last drew
+local sinceDraw = 0 -- seconds since the list was last drawn
 local message   -- a reply or notice shown instead of Auctions.status
 local seenStatus -- Auctions.status as last drawn: a new one replaces the message
 local retryId   -- a picked item whose search waits for the running scan to end
@@ -63,10 +66,10 @@ local function setEnabled(button, on)
   if on then button:Enable() else button:Disable() end
 end
 
-local function scrollToTop(scroll)
-  FauxScrollFrame_SetOffset(scroll, 0)
+local function scrollTo(scroll, offset)
+  FauxScrollFrame_SetOffset(scroll, offset)
   local bar = _G[scroll:GetName() .. "ScrollBar"]
-  if bar then bar:SetValue(0) end
+  if bar then bar:SetValue(offset * ROW_HEIGHT) end
 end
 
 -- The name of an item of ours, or of one that is no longer listed.
@@ -123,6 +126,14 @@ local function onUndercut()
   if id then act(function() return Auctions.Undercut(id) end) end
 end
 
+-- The ages in the list grow with no event to say so: every REDRAW seconds the
+-- shown page draws the list again. Display only; it never calls an action.
+local function onTick(_, elapsed)
+  if not ns.Tabs.IsShown("auctions") then return end
+  sinceDraw = sinceDraw + elapsed
+  if sinceDraw >= REDRAW then drawList() end  -- drawList restarts the clock
+end
+
 -- Building
 
 local function createRow(list, i)
@@ -149,6 +160,9 @@ local function createRow(list, i)
     fs:SetPoint("LEFT", row, "LEFT", cell[2], 0)
     row[cell[1]] = fs
   end
+  row.flip = makeText(row, "GameFontHighlightSmall", FLIP_WIDTH, 14)
+  row.flip:SetJustifyH("RIGHT")
+  row.flip:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 
   row:SetScript("OnClick", function(self)
     if self.group then pick(self.group.id) end
@@ -220,15 +234,18 @@ function AuctionsUI.Build()
   AuctionsUI.undercut:SetScript("OnClick", onUndercut)
   AuctionsUI.flip = ns.Flip.CreateWidget(page, pickedItem)
   AuctionsUI.flip.frame:SetPoint("TOPLEFT", AuctionsUI.cancelUndercut, "BOTTOMLEFT", 0, -4)
+
+  page:SetScript("OnUpdate", onTick)
 end
 
 -- Drawing
 
--- " (5m ago)" for a check at least a minute old, so an old one is seen before
+-- " (now)" or " (5m ago)" for a checked item, so an old check is seen before
 -- the player cancels on it.
 local function ageText(id)
   local _, age = Listings.Get(id)
-  if not age or age < FRESH then return "" end
+  if not age then return "" end
+  if age < 60 then return " (now)" end
   return " (" .. Util.FormatAge(age) .. " ago)"
 end
 
@@ -246,7 +263,6 @@ local function statusText(g)
   else
     text = "-"
   end
-  if g.flip then text = text .. " " .. Util.ICON_GOLD .. " flip" end
   return text
 end
 
@@ -255,16 +271,18 @@ local function yoursText(g)
 end
 
 -- The window of rows. Called by the scroll bar too, so it draws only the list.
--- The scroll position stays across redraws; it goes back to the top only when
--- the list has become too short to reach it.
+-- The scroll position stays across redraws; a list that has become too short
+-- to reach it puts the position at its own end.
 function drawList()
   local groups, selected = Auctions.Groups(), Auctions.Selected()
   local scroll = AuctionsUI.scroll
+  local maxOffset = math.max(0, #groups - VISIBLE)
   local offset = FauxScrollFrame_GetOffset(scroll) or 0
-  if offset > math.max(0, #groups - VISIBLE) then
-    scrollToTop(scroll)
-    offset = 0
+  if offset > maxOffset then
+    scrollTo(scroll, maxOffset)
+    offset = maxOffset
   end
+  sinceDraw = 0
   for i = 1, VISIBLE do
     local row, g = AuctionsUI.rows[i], groups[i + offset]
     row.group = g
@@ -273,6 +291,7 @@ function drawList()
       row.name:SetText(g.name)
       row.yours:SetText(yoursText(g))
       row.status:SetText(statusText(g))
+      row.flip:SetText(g.flip and (Util.ICON_GOLD .. " flip") or "")
       if g.id == selected then row.selected:Show() else row.selected:Hide() end
       row:Show()
     else
@@ -287,7 +306,7 @@ end
 -- notice follows the new item at once.
 local function itemChanged(id)
   shownId = id
-  scrollToTop(AuctionsUI.listings.scroll)
+  scrollTo(AuctionsUI.listings.scroll, 0)
   AuctionsUI.flip:Update()
 end
 
