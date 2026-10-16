@@ -455,14 +455,19 @@ return {
     T.eq(Mock.cancelled[1].auction, first)
     T.ok(Mock.ownerPending, "the owner list is asked for again")
 
-    -- The list moved on: the player posted something that sits in front now, so
-    -- the second 420g auction is not where the first read had it.
+    -- The list moved on: the player posted two more items that sit in front now.
+    -- The second 420g auction is neither where the first read had it (index 5,
+    -- now the tied 410g one) nor where it moved to after the first cancel (index
+    -- 4, now the 400g one).
     table.insert(Mock.owned, 1, owned(CLOTH, CLOTH_NAME, gold(5)))
+    table.insert(Mock.owned, 1, owned(DUST, DUST_NAME, gold(6)))
+    T.eq(Mock.owned[5], tied)
+    T.eq(Mock.owned[4], cheap)
     T.ok(Mock.deliverOwned(ns))
     T.eq(ns.Auctions.CountUndercut(BAG), 1)
     T.eq(ns.Auctions.CancelUndercut(BAG), true)
     T.eq(#Mock.cancelled, 2)
-    T.eq(Mock.cancelled[2].index, 5)
+    T.eq(Mock.cancelled[2].index, 6)
     T.eq(Mock.cancelled[2].auction, second)
 
     Mock.deliverOwned(ns)
@@ -641,15 +646,27 @@ return {
     local changed = changes(ns)
     T.eq(ns.Auctions.status, "")
 
+    -- The tab switches only once the item is in the slot: watch the tab at the
+    -- moment of the put.
+    local tabAtPut = "never put"
+    local realPut = ns.Sell.PutItemById
+    ns.Sell.PutItemById = function(id)
+      tabAtPut = Mock.lastTab
+      return realPut(id)
+    end
+
     -- in the bags: CP Sell opens with the item in its slot
     Mock.bags[0] = { [1] = { id = BAG, name = BAG_NAME, count = 2 } }
     T.eq(ns.Auctions.Undercut(BAG), true)
-    T.eq(Mock.lastTab, 4, "CP Sell")
+    T.eq(tabAtPut, nil, "the item goes in first")
+    T.eq(Mock.lastTab, 4, "then CP Sell opens")
     T.eq(Mock.sellSlot.id, BAG)
     T.eq(ns.Sell.State().item.id, BAG)
     T.eq(ns.Auctions.status, "")
+    T.eq(changed.n, 0)
 
-    -- not in the bags: stay where we are and say where it is
+    -- not in the bag slots (it is in the mailbox, or an equipped copy): stay
+    -- where we are and say where it is
     Mock.bags, Mock.sellSlot, Mock.lastTab = {}, nil, nil
     local ok, err = ns.Auctions.Undercut(CLOTH)
     T.eq(ok, false)
@@ -658,21 +675,85 @@ return {
     T.eq(ns.Auctions.status, MAILBOX)
     T.eq(changed.n, 1)
 
-    -- a copy the bags' count includes but the slot search does not find
-    -- (an equipped one) ends the same way
-    GetItemCount = function() return 1 end
+    -- any other failure: its own message, and the tab stays as well
+    ns.Sell.PutItemById = function() return false, "put-failed" end
     changed.n = 0
-    ns.Auctions.status = ""
-    local ok2, err2 = ns.Auctions.Undercut(CLOTH)
-    T.eq(ok2, false)
-    T.eq(err2, "not-in-bags")
-    T.eq(ns.Auctions.status, MAILBOX)
+    local ok3, err3 = ns.Auctions.Undercut(BAG)
+    T.eq(ok3, false)
+    T.eq(err3, "put-failed")
+    T.eq(Mock.lastTab, nil, "no tab switch")
+    T.eq(ns.Auctions.status, "Couldn't put it in the sell slot.")
     T.eq(changed.n, 1)
 
-    -- picking another item wipes the message
+    -- a good put afterwards wipes the message
+    ns.Sell.PutItemById = realPut
+    Mock.bags[0] = { [1] = { id = BAG, name = BAG_NAME, count = 2 } }
+    T.eq(ns.Auctions.Undercut(BAG), true)
+    T.eq(Mock.lastTab, 4)
+    T.eq(ns.Auctions.status, "")
+    T.eq(changed.n, 2)
+
+    -- picking another item wipes the message too
+    ns.Auctions.status = MAILBOX
     Mock.owned = { bagAuction(gold(420)) }
     readAll(ns)
     ns.Auctions.Select(BAG)
     T.eq(ns.Auctions.status, "")
+  end,
+
+  suffix_variant_is_never_cancelled = function(T)
+    -- Random-suffix items share one item id; the cached rows are one variant's.
+    local ns = setup()
+    local plain = bagAuction(gold(420))
+    local eagle = bagAuction(gold(400), { suffix = -14, name = "Belt of the Eagle" })
+    local bear = bagAuction(gold(430), { suffix = 1221, name = "Belt of the Bear" })
+    Mock.owned = { eagle, bear, plain }
+    cache(ns, BAG, { row("Me", gold(420)), row("Bob", gold(300)) })
+    readAll(ns)
+
+    local g = group(ns, BAG)
+    T.eq(g.active, 3, "still grouped and shown")
+    T.eq(g.lowestUnit, gold(400))
+    T.eq(ns.Auctions.CountUndercut(BAG), 1, "only the one without a suffix can be compared")
+    T.eq(ns.Auctions.CountAllUndercut(), 1)
+
+    T.eq(ns.Auctions.CancelNextUndercut(), true)
+    T.eq(Mock.cancelled[1].auction, plain)
+    T.ok(Mock.deliverOwned(ns))
+    T.eq(ns.Auctions.CountUndercut(BAG), 0)
+    T.eq(select(2, ns.Auctions.CancelUndercut(BAG)), "none")
+    T.eq(select(2, ns.Auctions.CancelNextUndercut()), "none")
+    T.eq(#Mock.cancelled, 1, "the Eagle and the Bear keep their deposits")
+  end,
+
+  unnamed_cheaper_row_never_triggers_cancel = function(T)
+    -- A row without a seller name may be an alt's: it is not proof of a competitor.
+    local ns = setup()
+    local mine = bagAuction(gold(420))
+    Mock.owned = { mine }
+    cache(ns, BAG, { row("Me", gold(420)), row(nil, gold(300)) })
+    readAll(ns)
+
+    -- the page still shows what the cache says
+    T.eq(group(ns, BAG).status, "undercut")
+    T.eq(group(ns, BAG).seller, nil)
+    T.eq(ns.Auctions.CountUndercut(BAG), 0)
+    T.eq(ns.Auctions.CountAllUndercut(), 0)
+    T.eq(select(2, ns.Auctions.CancelUndercut(BAG)), "none")
+    T.eq(select(2, ns.Auctions.CancelNextUndercut()), "none")
+    T.eq(#Mock.cancelled, 0)
+
+    -- a named seller at that price is a competitor
+    cache(ns, BAG, { row("Me", gold(420)), row(nil, gold(300)), row("Bob", gold(300)) })
+    T.eq(ns.Auctions.CountUndercut(BAG), 1)
+    T.eq(ns.Auctions.CancelUndercut(BAG), true)
+    T.eq(Mock.cancelled[1].auction, mine)
+
+    -- and a named seller above the unnamed one sets the price to beat
+    local ns2 = setup()
+    Mock.owned = { bagAuction(gold(420)) }
+    cache(ns2, BAG, { row("Me", gold(420)), row(nil, gold(300)), row("Bob", gold(430)) })
+    readAll(ns2)
+    T.eq(ns2.Auctions.CountUndercut(BAG), 0, "Bob is dearer than we are")
   end,
 }

@@ -131,12 +131,12 @@ function Mock.reset()
   GetAuctionItemLink = function(kind, i)
     local a = (kind == "owner" and Mock.ownerBatch() or Mock.list)[i]
     if Mock.ah.nilLinks or a.nilLink then return nil end
-    return Mock.Link(a.id, a.name)
+    return Mock.Link(a.id, a.name, a.suffix)
   end
 
   -- Your own auctions: Mock.owned = { { id, name, count, buyout, sold?, timeLeft?,
-  -- bid?, texture?, nilLink? } } (timeLeft 1 short .. 4 very long, default 3; bid
-  -- = a bid is on it). The loaded batch is the whole list, or with
+  -- bid?, texture?, nilLink?, suffix? } } (timeLeft 1 short .. 4 very long, default
+  -- 3; bid = a bid is on it; suffix = the random-suffix id in the item link). The loaded batch is the whole list, or with
   -- Mock.ownerPaged the 50 entries of the page last asked for (the client's
   -- own Auctions tab reads one batch; paging is the case where it is smaller than
   -- the total). GetOwnerAuctionItems(page) records the page (Mock.ownerPage, and
@@ -507,8 +507,10 @@ function Mock.pump(ns, maxSteps)
   return false
 end
 
-function Mock.Link(id, name)
-  return "|cffffffff|Hitem:" .. id .. ":0:0:0:0:0:0:0:80|h[" .. (name or "?") .. "]|h|r"
+-- item:id:enchant:gem1:gem2:gem3:gem4:suffix:unique:level
+function Mock.Link(id, name, suffix)
+  return "|cffffffff|Hitem:" .. id .. ":0:0:0:0:0:" .. (suffix or 0) .. ":0:80|h["
+    .. (name or "?") .. "]|h|r"
 end
 
 function Mock.load(files)

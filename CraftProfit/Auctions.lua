@@ -38,6 +38,15 @@ local function unitOf(a)
   return max(1, floor(a.buyout / max(a.count, 1) + 0.5))
 end
 
+-- True for a random-suffix variant ("of the Bear"): the item string
+-- item:id:enchant:gem1:gem2:gem3:gem4:suffix:... has a suffix other than 0.
+-- Such variants share one item id but not a price, so the cached rows of that
+-- id say nothing about them.
+local function isVariant(link)
+  local suffix = link and link:match("item:%d+:%-?%d+:%-?%d+:%-?%d+:%-?%d+:%-?%d+:(%-?%d+)")
+  return suffix ~= nil and tonumber(suffix) ~= 0
+end
+
 -- The auction at `index` of the loaded owner batch, or nil while the client
 -- has not loaded its item yet.
 local function readAuction(index)
@@ -49,7 +58,8 @@ local function readAuction(index)
   return {
     id = id, name = name or ns.Util.ItemNameFromLink(link) or "", texture = texture,
     count = count or 1, buyout = buyout or 0, bid = bid or 0,
-    sold = saleStatus == 1, timeLeft = GetAuctionItemTimeLeft("owner", index),
+    sold = saleStatus == 1, variant = isVariant(link),
+    timeLeft = GetAuctionItemTimeLeft("owner", index),
   }
 end
 
@@ -178,20 +188,36 @@ function Auctions.Select(id)
   return ok, err
 end
 
+-- Price to beat for a cancel: the cheapest priced row of another seller that is
+-- not a mistake listing, or false. Only rows that name their seller count: the
+-- scanner reads a page whose owner names have not loaded after a while, and an
+-- unnamed row may be an alt's listing, which is ours.
+local function priceToBeat(rows)
+  local best = false
+  for _, r in ipairs(rows) do
+    if not r.mine and not r.outlier and (r.unit or 0) > 0 and r.seller and r.seller ~= ""
+        and (not best or r.unit < best) then
+      best = r.unit
+    end
+  end
+  return best
+end
+
 -- Indexes in the loaded owner batch of the undercut auctions: { [id] = { i, ... } }
 -- in batch order, and how many there are. Undercut = active, with a buyout, no
--- bid on it, cancellable, and priced above the cheapest other seller of the
--- cached price check (of any age). Read fresh from the client every time.
+-- bid on it, cancellable, no random-suffix variant, and priced above the price to
+-- beat from the cached price check (of any age). Read fresh from the client
+-- every time.
 local function undercutIndexes()
   local byId, total, lowest = {}, 0, {}
   local batch = GetNumAuctionItems("owner") or 0
   for index = 1, batch do
     local a = readAuction(index)
-    if a and not a.sold and a.buyout > 0 and a.bid == 0 then
+    if a and not a.sold and not a.variant and a.buyout > 0 and a.bid == 0 then
       local other = lowest[a.id]
       if other == nil then
         local rows = ns.Listings.Get(a.id)
-        other = rows and ns.Listings.Summarize(rows).lowestOther or false
+        other = rows and priceToBeat(rows) or false
         lowest[a.id] = other
       end
       if other and unitOf(a) > other and CanCancelAuction(index) then
@@ -262,24 +288,23 @@ StaticPopupDialogs["CRAFTPROFIT_CANCEL"] = {
   hideOnEscape = 1,
 }
 
--- Put the item in CP Sell to list it again under the others. ok, or false and
--- why ("not-in-bags": status says to collect it from the mailbox).
+-- Put the item in CP Sell to list it again under the others. The tab opens only
+-- once the item is in the slot, so a message always lands on the page the
+-- player is looking at. ok, or false and why ("not-in-bags": status says to
+-- collect it from the mailbox).
 function Auctions.Undercut(id)
-  if GetItemCount(id) > 0 then
+  local ok, err = ns.Sell.PutItemById(id)
+  if ok then
     ns.Tabs.Select("sell")
-    local ok, err = ns.Sell.PutItemById(id)
-    if ok then
-      if Auctions.status ~= "" then
-        Auctions.status = ""
-        changed()
-      end
-      return true
+    if Auctions.status ~= "" then
+      Auctions.status = ""
+      changed()
     end
-    if err ~= "not-in-bags" then return false, err end
+    return true
   end
-  Auctions.status = MAILBOX
+  Auctions.status = err == "not-in-bags" and MAILBOX or "Couldn't put it in the sell slot."
   changed()
-  return false, "not-in-bags"
+  return false, err
 end
 
 -- Statuses follow the listings cache.
