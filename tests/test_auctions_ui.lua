@@ -214,10 +214,10 @@ return {
     local FLIP = Util.ICON_GOLD .. " flip"
 
     T.eq(names(ns), BAG_NAME .. "|" .. DUST_NAME .. "|" .. EBON_NAME .. "|" .. CLOTH_NAME .. "|" .. ORE_NAME)
-    T.eq(rowOf(ns, BAG_NAME).status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (now)")
-    T.eq(rowOf(ns, DUST_NAME).status:GetText(), Util.ICON_WARN .. " tied (now)")
+    T.eq(rowOf(ns, BAG_NAME).status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob)")
+    T.eq(rowOf(ns, DUST_NAME).status:GetText(), Util.ICON_WARN .. " tied")
     T.eq(rowOf(ns, EBON_NAME).status:GetText(), "-")
-    T.eq(rowOf(ns, CLOTH_NAME).status:GetText(), Util.ICON_OK .. " cheapest (now)")
+    T.eq(rowOf(ns, CLOTH_NAME).status:GetText(), Util.ICON_OK .. " cheapest")
     T.eq(rowOf(ns, ORE_NAME).status:GetText(), "sold")
 
     -- the flip marker has a cell of its own, empty on rows without a flip
@@ -235,11 +235,11 @@ return {
 
     -- an undercutter whose name has not loaded
     cache(ns, DUST, { row("Me", gold(5)), { count = 1, buyout = gold(4) } })
-    T.eq(rowOf(ns, DUST_NAME).status:GetText(), Util.ICON_WARN .. " undercut 1g (?) (now)")
+    T.eq(rowOf(ns, DUST_NAME).status:GetText(), Util.ICON_WARN .. " undercut 1g (?)")
 
     -- an undercut item that is also a flip: the status text is the same, the cell fills
     cache(ns, BAG, { row("Me", gold(420)), row("Flipper", gold(1)), row("Bob", gold(410)) })
-    T.eq(rowOf(ns, BAG_NAME).status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (now)")
+    T.eq(rowOf(ns, BAG_NAME).status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob)")
     T.eq(rowOf(ns, BAG_NAME).flip:GetText(), FLIP)
 
     -- a row that scrolls to another item takes its own flip state with it
@@ -267,12 +267,10 @@ return {
     local Util = ns.Util
     Mock.owned = { bagAuction(gold(420)) }
     readAll(ns)
-    -- the longest row there is: undercut, a 12-letter seller, an old check, a flip
+    -- the longest row there is: undercut, a 12-letter seller, a flip
     cache(ns, BAG, { row("Me", gold(420)), row("Flipper", gold(1)), row("Characternam", gold(410)) })
-    Mock.now = Mock.now + 5 * 60
-    ns.AuctionsUI.Update()
     local r = rowOf(ns, BAG_NAME)
-    T.eq(r.status:GetText(), Util.ICON_WARN .. " undercut 10g (Characternam) (5m ago)")
+    T.eq(r.status:GetText(), Util.ICON_WARN .. " undercut 10g (Characternam)")
     T.eq(r.flip:GetText(), Util.ICON_GOLD .. " flip")
     T.eq(r.flip:IsShown(), true)
     T.ok(not r.status:GetText():find("flip", 1, true), "the status text never carries the marker")
@@ -290,36 +288,110 @@ return {
       "the status text stops where the flip cell begins")
   end,
 
-  status_shows_check_age = function(T)
+  row_status_never_carries_an_age = function(T)
     local ns = setup()
     openAuctions()
     fiveItems(ns)
     local Util = ns.Util
-    local function status(name) return rowOf(ns, name).status:GetText() end
-
-    -- a checked item always says how old the check is
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (now)")
-    Mock.now = Mock.now + 30
+    local page = ns.Tabs.Page("auctions")
+    local function plain()
+      T.eq(rowOf(ns, BAG_NAME).status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob)")
+      T.eq(rowOf(ns, DUST_NAME).status:GetText(), Util.ICON_WARN .. " tied")
+      T.eq(rowOf(ns, CLOTH_NAME).status:GetText(), Util.ICON_OK .. " cheapest")
+      T.eq(rowOf(ns, EBON_NAME).status:GetText(), "-")
+      T.eq(rowOf(ns, ORE_NAME).status:GetText(), "sold")
+    end
+    plain()
+    Mock.now = Mock.now + 5 * 60
     ns.AuctionsUI.Update()
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (now)")
-
-    -- an old one says so, before the player cancels on it
-    Mock.now = Mock.now + 5 * 60 - 30
-    ns.AuctionsUI.Update()
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (5m ago)")
-    T.eq(status(DUST_NAME), Util.ICON_WARN .. " tied (5m ago)")
-    T.eq(status(CLOTH_NAME), Util.ICON_OK .. " cheapest (5m ago)")
-    T.eq(rowOf(ns, CLOTH_NAME).flip:GetText(), Util.ICON_GOLD .. " flip")
-    T.eq(status(EBON_NAME), "-", "never checked: no age")
-    T.eq(status(ORE_NAME), "sold")
-
+    plain()
     Mock.now = Mock.now + 2 * 3600
-    ns.AuctionsUI.Update()
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (2h ago)")
+    page:GetScript("OnUpdate")(page, 16)
+    plain()
+  end,
 
-    -- a new check starts again from nothing
-    cache(ns, BAG, { row("Me", gold(420)), row("Bob", gold(400)) })
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 20g (Bob) (now)")
+  title_shows_the_check_age = function(T)
+    local ns = setup()
+    openAuctions()
+    fiveItems(ns)
+    local ui = ns.AuctionsUI
+    local page = ns.Tabs.Page("auctions")
+    local title = ui.listings.title
+
+    -- nothing picked: no title
+    T.eq(title:GetText(), "")
+
+    -- a check just made
+    click(rowOf(ns, BAG_NAME))
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked now)")
+
+    -- the title ages with the page open, 15 s at a time, with no other event
+    Mock.now = Mock.now + 5 * 60
+    ns.Fire("PAGE_STATUS", "unrelated")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked now)", "no event redraws it")
+    page:GetScript("OnUpdate")(page, 15)
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 5m ago)")
+    Mock.now = Mock.now + 2 * 3600
+    page:GetScript("OnUpdate")(page, 15)
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 2h ago)")
+
+    -- an item nobody checked has just its name, until the search answers
+    Mock.ah.auctions = {
+      { id = EBON, name = EBON_NAME, count = 1, buyout = gold(60), seller = "Bob" },
+    }
+    click(rowOf(ns, EBON_NAME))
+    T.eq(title:GetText(), EBON_NAME .. ": all listings")
+    T.ok(Mock.pump(ns))
+    T.eq(title:GetText(), EBON_NAME .. ": all listings (checked now)")
+
+    -- an old check the click searches again starts from "now"
+    click(rowOf(ns, BAG_NAME))
+    T.ok(Mock.pump(ns))
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked now)")
+
+    -- picking nothing clears it
+    ns.Auctions.Select(nil)
+    T.eq(title:GetText(), "")
+  end,
+
+  oldest_check_line = function(T)
+    local ns = setup()
+    openAuctions()
+    local ui = ns.AuctionsUI
+    local page = ns.Tabs.Page("auctions")
+    local line = ui.oldest
+    T.eq(line:GetText(), "", "nothing to cancel, nothing to say")
+
+    Mock.owned = { bagAuction(gold(420)), owned(CLOTH, CLOTH_NAME, gold(50)), owned(DUST, DUST_NAME, gold(5)) }
+    readAll(ns)
+    T.eq(line:GetText(), "", "never checked")
+
+    -- the dust is checked first and is not undercut: its age does not count
+    cache(ns, DUST, { row("Me", gold(5)), row("Bob", gold(6)) })
+    T.eq(line:GetText(), "")
+    Mock.now = Mock.now + 10 * 60
+    cache(ns, CLOTH, { row("Me", gold(50)), row("Bob", gold(40)) })
+    T.eq(line:GetText(), "Oldest check: now", "one undercut item, just checked")
+    Mock.now = Mock.now + 10 * 60
+    cache(ns, BAG, { row("Me", gold(420)), row("Bob", gold(410)) })
+    T.eq(ns.Auctions.CountAllUndercut(), 2)
+    T.eq(line:GetText(), "Oldest check: 10m ago", "the cloth, not the 20 minutes of the dust")
+
+    -- it ages with the page open
+    Mock.now = Mock.now + 5 * 60
+    T.eq(line:GetText(), "Oldest check: 10m ago", "no event redraws it")
+    page:GetScript("OnUpdate")(page, 15)
+    T.eq(line:GetText(), "Oldest check: 15m ago")
+
+    -- checking the cloth again makes the bag the oldest
+    cache(ns, CLOTH, { row("Me", gold(50)), row("Bob", gold(40)) })
+    T.eq(line:GetText(), "Oldest check: 5m ago")
+
+    -- no undercut left to cancel: nothing to say
+    Mock.owned = { owned(DUST, DUST_NAME, gold(5)) }
+    readAll(ns)
+    T.eq(ns.Auctions.CountAllUndercut(), 0)
+    T.eq(line:GetText(), "")
   end,
 
   ages_tick_without_events = function(T)
@@ -330,53 +402,68 @@ return {
     local page = ns.Tabs.Page("auctions")
     local onUpdate = page:GetScript("OnUpdate")
     T.ok(onUpdate, "the page redraws itself now and then")
-    local function status(name) return rowOf(ns, name).status:GetText() end
+    local ui = ns.AuctionsUI
+    click(rowOf(ns, BAG_NAME))
+    local title, line = ui.listings.title, ui.oldest
     local changedEvents = 0
     ns.On("AUCTIONS_CHANGED", function() changedEvents = changedEvents + 1 end)
+    local BAG_NOW = BAG_NAME .. ": all listings (checked now)"
 
     -- the player reads the page for five minutes; no event comes
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (now)")
+    T.eq(title:GetText(), BAG_NOW)
+    T.eq(line:GetText(), "Oldest check: now")
     Mock.now = Mock.now + 5 * 60
     onUpdate(page, 14)
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (now)", "not before 15 s")
+    T.eq(title:GetText(), BAG_NOW, "not before 15 s")
+    T.eq(line:GetText(), "Oldest check: now")
     onUpdate(page, 2)
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (5m ago)")
-    T.eq(status(DUST_NAME), Util.ICON_WARN .. " tied (5m ago)")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 5m ago)")
+    T.eq(line:GetText(), "Oldest check: 5m ago")
     T.eq(changedEvents, 0, "a plain redraw")
 
     -- and again, 15 s at a time (small frames add up)
     Mock.now = Mock.now + 60
     for _ = 1, 10 do onUpdate(page, 1) end
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (5m ago)", "10 s so far")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 5m ago)", "10 s so far")
     for _ = 1, 5 do onUpdate(page, 1) end
-    T.eq(status(BAG_NAME), Util.ICON_WARN .. " undercut 10g (Bob) (6m ago)")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 6m ago)")
+    T.eq(line:GetText(), "Oldest check: 6m ago")
+
+    -- the rows were redrawn too, and they stay plain
+    T.eq(rowOf(ns, BAG_NAME).status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob)")
   end,
 
   hidden_page_ignores_the_tick = function(T)
     local ns = setup()
     openAuctions()
     fiveItems(ns)
-    local Util = ns.Util
     local page = ns.Tabs.Page("auctions")
     local onUpdate = page:GetScript("OnUpdate")
-    local bag = rowOf(ns, BAG_NAME)
-    T.eq(bag.status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (now)")
+    local ui = ns.AuctionsUI
+    click(rowOf(ns, BAG_NAME))
+    local title, line = ui.listings.title, ui.oldest
+    local BAG_NOW = BAG_NAME .. ": all listings (checked now)"
+    T.eq(title:GetText(), BAG_NOW)
 
     Mock.now = Mock.now + 10 * 60
     openBrowse()
     onUpdate(page, 60)
-    T.eq(bag.status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (now)", "another tab is shown")
+    T.eq(title:GetText(), BAG_NOW, "another tab is shown")
+    T.eq(line:GetText(), "Oldest check: now")
     openAuctions()
-    T.eq(bag.status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (10m ago)", "showing it redraws")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 10m ago)", "showing it redraws")
+    T.eq(line:GetText(), "Oldest check: 10m ago")
 
     -- the Auction House closed on this tab
     Mock.now = Mock.now + 10 * 60
     AuctionFrame:Hide()
     onUpdate(page, 60)
-    T.eq(bag.status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (10m ago)", "the AH is closed")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 10m ago)", "the AH is closed")
+    T.eq(line:GetText(), "Oldest check: 10m ago")
     AuctionFrame:Show()
     onUpdate(page, 60)
-    T.eq(bag.status:GetText(), Util.ICON_WARN .. " undercut 10g (Bob) (20m ago)")
+    T.eq(title:GetText(), BAG_NAME .. ": all listings (checked 20m ago)")
+    T.eq(line:GetText(), "Oldest check: 20m ago")
   end,
 
   empty_message = function(T)
@@ -413,7 +500,7 @@ return {
     click(rowOf(ns, BAG_NAME))
     T.eq(ns.Auctions.Selected(), BAG)
     T.eq(#Mock.queries, 0)
-    T.eq(ui.listings.title:GetText(), BAG_NAME .. ": all listings")
+    T.eq(ui.listings.title:GetText(), BAG_NAME .. ": all listings (checked now)")
     T.eq(#ui.listings.rows, 2)
     local lines = ui.listings.lines
     T.eq(lines[1].seller:GetText(), "Bob")
@@ -440,7 +527,7 @@ return {
     T.eq(lines[2].seller:GetText(), "YOU")
 
     -- the list reordered itself (it is undercut now); the mark followed the item
-    T.eq(rowOf(ns, EBON_NAME).status:GetText(), Util.ICON_WARN .. " undercut 20g (Bob) (now)")
+    T.eq(rowOf(ns, EBON_NAME).status:GetText(), Util.ICON_WARN .. " undercut 20g (Bob)")
     T.eq(rowOf(ns, EBON_NAME).selected:IsShown(), true)
     T.eq(rowOf(ns, BAG_NAME).selected:IsShown(), false)
     T.eq(names(ns):sub(1, #EBON_NAME), EBON_NAME)
@@ -755,7 +842,7 @@ return {
 
     T.eq(flip.frame:IsShown(), false, "no item, no notice")
     click(rowOf(ns, CLOTH_NAME))
-    T.eq(tbl.title:GetText(), CLOTH_NAME .. ": all listings")
+    T.eq(tbl.title:GetText(), CLOTH_NAME .. ": all listings (checked now)")
     T.eq(flip.frame:IsShown(), true, "the mistake listing is offered")
     T.eq(tbl.scroll.offset, 0)
     T.eq(barValue, 0)
@@ -773,7 +860,7 @@ return {
     click(rowOf(ns, DUST_NAME))
     T.eq(tbl.scroll.offset, 0)
     T.eq(barValue, 0)
-    T.eq(tbl.title:GetText(), DUST_NAME .. ": all listings")
+    T.eq(tbl.title:GetText(), DUST_NAME .. ": all listings (checked now)")
     T.eq(flip.frame:IsShown(), false)
 
     -- and back again: the cached listings show the notice again
@@ -895,7 +982,7 @@ return {
 
     -- a price check lands (LISTINGS_UPDATED)
     cache(ns, BAG, { row("Me", gold(420)), row("Bob", gold(410)) })
-    T.eq(rowOf(ns, BAG_NAME).status:GetText(), ns.Util.ICON_WARN .. " undercut 10g (Bob) (now)")
+    T.eq(rowOf(ns, BAG_NAME).status:GetText(), ns.Util.ICON_WARN .. " undercut 10g (Bob)")
     T.eq(CraftProfitCancelNext:GetText(), "Cancel next undercut (1)")
 
     -- the shown item's listings change without a group of ours (all sold and gone)
@@ -905,6 +992,7 @@ return {
     T.eq(names(ns), "")
     cache(ns, BAG, { row("Bob", gold(400)) })
     T.eq(#ui.listings.rows, 1)
-    T.eq(ui.listings.title:GetText(), BAG_NAME .. ": all listings", "the name of an item no longer listed")
+    T.eq(ui.listings.title:GetText(), BAG_NAME .. ": all listings (checked now)",
+      "the name of an item no longer listed")
   end,
 }

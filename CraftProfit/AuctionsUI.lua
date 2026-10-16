@@ -28,9 +28,9 @@ local NO_ACTIVE = "You have no active auctions."
 -- Cells of a list row (after the icon): key, x offset, width, header. The
 -- status text clips before it can reach the flip cell.
 local CELLS = {
-  { "name", 18, 96, "Item" },
-  { "yours", 118, 66, "Yours" },
-  { "status", 188, ROW_WIDTH - 188 - FLIP_WIDTH, "Status" },
+  { "name", 18, 90, "Item" },
+  { "yours", 112, 58, "Yours" },
+  { "status", 174, ROW_WIDTH - 174 - FLIP_WIDTH, "Status" },
 }
 
 local built = false
@@ -40,10 +40,10 @@ local message   -- a reply or notice shown instead of Auctions.status
 local seenStatus -- Auctions.status as last drawn: a new one replaces the message
 local retryId   -- a picked item whose search waits for the running scan to end
 
--- Widgets, set by Build: list, scroll, rows, empty, check, cancelNext,
+-- Widgets, set by Build: list, scroll, rows, empty, check, cancelNext, oldest,
 -- listings, cancelUndercut, undercut, flip, status.
 
-local drawList  -- below
+local drawList, drawTitle, drawOldest  -- below
 
 local function makeText(parent, font, width, height)
   local fs = parent:CreateFontString(nil, "OVERLAY", font)
@@ -126,12 +126,17 @@ local function onUndercut()
   if id then act(function() return Auctions.Undercut(id) end) end
 end
 
--- The ages in the list grow with no event to say so: every REDRAW seconds the
--- shown page draws the list again. Display only; it never calls an action.
+-- The check ages (title, oldest-check line) grow with no event to say so: every
+-- REDRAW seconds the shown page draws them again. Display only; it never calls
+-- an action.
 local function onTick(_, elapsed)
   if not ns.Tabs.IsShown("auctions") then return end
   sinceDraw = sinceDraw + elapsed
-  if sinceDraw >= REDRAW then drawList() end  -- drawList restarts the clock
+  if sinceDraw < REDRAW then return end
+  sinceDraw = 0
+  drawList()
+  drawTitle(Auctions.Selected())
+  drawOldest(Auctions.Groups(), Auctions.CountAllUndercut())
 end
 
 -- Building
@@ -220,8 +225,10 @@ function AuctionsUI.Build()
   AuctionsUI.cancelNext = createButton(page, "CraftProfitCancelNext", "Cancel next undercut (0)", 190)
   AuctionsUI.cancelNext:SetPoint("LEFT", AuctionsUI.check, "RIGHT", 6, 0)
   AuctionsUI.cancelNext:SetScript("OnClick", onCancelNext)
+  AuctionsUI.oldest = makeText(page, "GameFontHighlightSmall", 190, 12)
+  AuctionsUI.oldest:SetPoint("TOPLEFT", AuctionsUI.cancelNext, "BOTTOMLEFT", 0, -4)
   AuctionsUI.status = makeText(page, "GameFontHighlightSmall", LIST_WIDTH, 40)
-  AuctionsUI.status:SetPoint("TOPLEFT", AuctionsUI.check, "BOTTOMLEFT", 0, -6)
+  AuctionsUI.status:SetPoint("TOPLEFT", AuctionsUI.check, "BOTTOMLEFT", 0, -20)
 
   local tbl = ns.ListingsUI.Create(page, "CraftProfitAuctionsListings")
   tbl.frame:SetPoint("TOPRIGHT", page, "TOPRIGHT", -LEFT, TOP)
@@ -240,24 +247,21 @@ end
 
 -- Drawing
 
--- " (now)" or " (5m ago)" for a checked item, so an old check is seen before
--- the player cancels on it.
-local function ageText(id)
-  local _, age = Listings.Get(id)
-  if not age then return "" end
-  if age < 60 then return " (now)" end
-  return " (" .. Util.FormatAge(age) .. " ago)"
+-- "now" or "5m ago".
+local function ago(age)
+  if age < 60 then return "now" end
+  return Util.FormatAge(age) .. " ago"
 end
 
 local function statusText(g)
   local s, text = g.status
   if s == "cheapest" then
-    text = Util.ICON_OK .. " cheapest" .. ageText(g.id)
+    text = Util.ICON_OK .. " cheapest"
   elseif s == "tied" then
-    text = Util.ICON_WARN .. " tied" .. ageText(g.id)
+    text = Util.ICON_WARN .. " tied"
   elseif s == "undercut" then
     text = Util.ICON_WARN .. " undercut " .. Util.FormatMoneyShort(g.diff)
-      .. " (" .. (g.seller or "?") .. ")" .. ageText(g.id)
+      .. " (" .. (g.seller or "?") .. ")"
   elseif s == "sold" then
     text = "sold"
   else
@@ -282,7 +286,6 @@ function drawList()
     scrollTo(scroll, maxOffset)
     offset = maxOffset
   end
-  sinceDraw = 0
   for i = 1, VISIBLE do
     local row, g = AuctionsUI.rows[i], groups[i + offset]
     row.group = g
@@ -310,16 +313,38 @@ local function itemChanged(id)
   AuctionsUI.flip:Update()
 end
 
-local function drawListings(id)
-  local tbl = AuctionsUI.listings
+-- "<item>: all listings (checked 5m ago)": how old the shown listings are.
+function drawTitle(id)
   if not id then
-    tbl:SetTitle("")
-    tbl:SetRows(nil)
+    AuctionsUI.listings:SetTitle("")
     return
   end
-  tbl:SetTitle((itemName(id) or ("item " .. id)) .. ": all listings")
-  local rows = Listings.Get(id)
-  tbl:SetRows(rows and Listings.MarkUnderYou(rows))
+  local title = (itemName(id) or ("item " .. id)) .. ": all listings"
+  local rows, age = Listings.Get(id)
+  if rows then title = title .. " (checked " .. ago(age) .. ")" end
+  AuctionsUI.listings:SetTitle(title)
+end
+
+local function drawListings(id)
+  drawTitle(id)
+  local rows = id and Listings.Get(id)
+  AuctionsUI.listings:SetRows(rows and Listings.MarkUnderYou(rows))
+end
+
+-- "Oldest check: 5m ago", beside Cancel next undercut: the oldest check among
+-- the items it would cancel on, so a stale one is seen before the player cancels
+-- (and loses a deposit). Empty when there is nothing to cancel.
+function drawOldest(groups, all)
+  local oldest
+  if all > 0 then
+    for _, g in ipairs(groups) do
+      local _, age = Listings.Get(g.id)
+      if age and (not oldest or age > oldest) and Auctions.CountUndercut(g.id) > 0 then
+        oldest = age
+      end
+    end
+  end
+  AuctionsUI.oldest:SetText(oldest and ("Oldest check: " .. ago(oldest)) or "")
 end
 
 local function drawButtons(groups, selected)
@@ -338,6 +363,7 @@ local function drawButtons(groups, selected)
   setEnabled(AuctionsUI.cancelUndercut, own > 0)
 
   setEnabled(AuctionsUI.undercut, selected ~= nil)
+  drawOldest(groups, all)
 end
 
 -- A reply or notice stays until Auctions' own status changes.
@@ -354,6 +380,7 @@ function AuctionsUI.Update()
   if not built then return end
   local groups, selected = Auctions.Groups(), Auctions.Selected()
   if selected ~= shownId then itemChanged(selected) end
+  sinceDraw = 0
   drawList()
   drawListings(selected)
   drawButtons(groups, selected)
