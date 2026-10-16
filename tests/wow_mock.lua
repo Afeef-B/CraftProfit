@@ -247,7 +247,15 @@ function FrameMethods.GetParent(self) return self._parent end
 function FrameMethods.Show(self) self._shown = true end
 function FrameMethods.Hide(self) self._shown = false end
 function FrameMethods.IsShown(self) return self._shown end
-function FrameMethods.IsVisible(self) return self._shown end
+-- Visible = shown with every parent shown (a closed AuctionFrame hides its pages).
+function FrameMethods.IsVisible(self)
+  local frame = self
+  while frame do
+    if not frame._shown then return false end
+    frame = frame._parent
+  end
+  return true
+end
 function FrameMethods.SetShown(self, v) self._shown = v and true or false end
 function FrameMethods.SetScript(self, kind, fn) self._scripts[kind] = fn end
 function FrameMethods.GetScript(self, kind) return self._scripts[kind] end
@@ -268,6 +276,20 @@ function FrameMethods.SetNumber(self, n)
 end
 function FrameMethods.GetNumber(self) return tonumber(self._text) or 0 end
 function FrameMethods.SetFormattedText(self, fmt, ...) self._text = string.format(fmt, ...) end
+-- Keyboard focus of an edit box: losing it runs OnEditFocusLost, as in the client.
+function FrameMethods.SetFocus(self)
+  if self._focus then return end
+  self._focus = true
+  local fn = self._scripts.OnEditFocusGained
+  if fn then fn(self) end
+end
+function FrameMethods.ClearFocus(self)
+  if not self._focus then return end
+  self._focus = false
+  local fn = self._scripts.OnEditFocusLost
+  if fn then fn(self) end
+end
+function FrameMethods.HasFocus(self) return self._focus and true or false end
 function FrameMethods.SetChecked(self, v) self._checked = v end
 function FrameMethods.GetChecked(self) return self._checked end
 function FrameMethods.Enable(self) self._enabled = true end

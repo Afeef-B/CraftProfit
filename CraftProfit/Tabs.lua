@@ -85,9 +85,11 @@ function Tabs.Page(key)
   return pages[key]
 end
 
+-- True only while the player can see the page: it is shown and so is the
+-- Auction House (closing the AH leaves the page's own shown flag alone).
 function Tabs.IsShown(key)
   local page = pages[key]
-  return page ~= nil and page:IsShown() and true or false
+  return page ~= nil and page:IsVisible() and true or false
 end
 
 -- Same as clicking the tab.

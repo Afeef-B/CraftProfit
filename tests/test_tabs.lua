@@ -176,6 +176,24 @@ return {
     T.eq(#shown, 7)
   end,
 
+  is_shown_means_visible_not_just_not_hidden = function(T)
+    local ns = load()
+    ns.Tabs.Ensure()
+    click(AuctionFrameTab4)
+    T.eq(ns.Tabs.IsShown("sell"), true)
+
+    -- the Auction House closes; our page keeps its own shown flag
+    AuctionFrame:Hide()
+    T.eq(CraftProfitSellPage:IsShown(), true)
+    T.eq(ns.Tabs.IsShown("sell"), false, "a page inside a closed AH is not shown")
+    T.eq(ns.Tabs.IsShown("auctions"), false)
+
+    -- it reopens on the same tab
+    AuctionFrame:Show()
+    T.eq(ns.Tabs.IsShown("sell"), true)
+    T.eq(ns.Tabs.IsShown("auctions"), false)
+  end,
+
   select_switches = function(T)
     local ns = load()
     ns.Tabs.Ensure()

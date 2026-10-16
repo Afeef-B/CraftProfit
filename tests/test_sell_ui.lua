@@ -334,6 +334,28 @@ return {
     T.eq(ns.Sell.State().item.id, OTHER)
   end,
 
+  alt_click_ignored_when_ah_closed = function(T)
+    local ns = setup()
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    local bagFrame = CreateFrame("Frame", nil, UIParent)
+    bagFrame:SetID(0)
+    local button = CreateFrame("Button", nil, bagFrame)
+    button:SetID(1)
+
+    -- CP Sell was the selected tab when the Auction House closed
+    openSell()
+    AuctionFrame:Hide()
+    Mock.alt = true
+    ContainerFrameItemButton_OnModifiedClick(button, "LeftButton")
+    T.eq(ns.Sell.State().item, nil, "the AH is closed: bags are not ours")
+    T.eq(Mock.sellSlot, nil)
+
+    -- opened again on the same tab, Alt+click works
+    AuctionFrame:Show()
+    ContainerFrameItemButton_OnModifiedClick(button, "LeftButton")
+    T.eq(ns.Sell.State().item.id, BAG)
+  end,
+
   slot_takes_the_dragged_item = function(T)
     local ns = setup()
     Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
@@ -420,6 +442,78 @@ return {
     CraftProfitSellStack:GetScript("OnEditFocusLost")(CraftProfitSellStack)
     T.eq(CraftProfitSellStack:GetNumber(), 20)
     T.eq(calls.SetStack, 0)
+  end,
+
+  focused_count_box_is_left_alone = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, 20 * 300) }
+    openSell()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 45)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    local calls = countCalls(ns)
+    local box = CraftProfitSellStacks
+    T.eq(box:GetNumber(), 2)
+
+    -- the player clears the box to type a new number
+    box:SetFocus()
+    box:SetText("")
+    -- a price check lands in the meantime
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, 20 * 500) }
+    T.ok(ns.Scanner.PriceCheck({ id = CLOTH, name = CLOTH_NAME }))
+    T.ok(Mock.pump(ns))
+    T.eq(ns.Sell.State().unit, 400, "the check did redraw the page")
+    T.eq(box:GetText(), "", "the box being typed in is not refilled")
+
+    -- the typed number is the count (not "2" followed by 5)
+    box:SetText("5")
+    T.eq(ns.Sell.State().stacks, 5)
+    T.eq(calls.SetStacks, 1)
+
+    -- a 0 on the way to e.g. 10 is not a count and not bumped to 1
+    box:SetText("0")
+    ns.SellUI.Update()
+    T.eq(box:GetText(), "0")
+    T.eq(ns.Sell.State().stacks, 5)
+    T.eq(calls.SetStacks, 1)
+
+    -- leaving the box shows the count Sell really has
+    box:ClearFocus()
+    T.eq(box:GetNumber(), 5)
+    T.eq(calls.SetStacks, 1)
+    box:SetFocus()
+    box:SetText("")
+    box:ClearFocus()
+    T.eq(box:GetNumber(), 5)
+
+    -- the stack size box is the same
+    local stack = CraftProfitSellStack
+    stack:SetFocus()
+    stack:SetText("")
+    ns.SellUI.Update()
+    T.eq(stack:GetText(), "")
+    stack:ClearFocus()
+    T.eq(stack:GetNumber(), 20)
+    T.eq(calls.SetStack, 0)
+  end,
+
+  focused_count_box_follows_a_count_sell_changed = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, 20 * 300) }
+    openSell()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 45)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+
+    -- the player typed 2 in the stacks box, clicked Post and the box kept the
+    -- keyboard; the game then reports fewer items in the bags
+    local box = CraftProfitSellStacks
+    box:SetFocus()
+    box:SetText("2")
+    inBag(0, 1, CLOTH, CLOTH_NAME, 25)
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(ns.Sell.State().stacks, 1)
+    T.eq(box:GetNumber(), 1, "Sell's new count shows even in a focused box")
   end,
 
   unchanged_value_is_not_a_typed_one = function(T)
@@ -614,11 +708,73 @@ return {
     ns.Fire("PAGE_ERROR", "also for another page")
     T.eq(status:GetText(), "first")
 
+    -- the Auction House closed on this tab: not the page the player sees
+    openSell()
+    ns.Fire("PAGE_STATUS", "second")
+    T.eq(status:GetText(), "second")
+    AuctionFrame:Hide()
+    ns.Fire("PAGE_STATUS", "while closed")
+    ns.Fire("PAGE_ERROR", "while closed")
+    T.eq(status:GetText(), "second")
+
     -- before the page was ever shown there is nothing to write to
     local fresh = setup()
     fresh.Fire("PAGE_STATUS", "early")
     fresh.Fire("PAGE_ERROR", "early")
     T.eq(fresh.SellUI.status, nil)
+  end,
+
+  price_changes_redraw_the_cost_line = function(T)
+    local ns = setup()
+    knowRecipe(ns)                            -- no cloth price anywhere
+    openSell()
+    putBag(ns, 2, false)
+    typePrice(41999)                          -- the player's price: Sell has nothing to redo
+    T.eq(ns.SellUI.profit:GetText(), GREY .. "cost unknown - scan it in Craft Profit|r")
+    T.eq(ns.SellUI.cost:GetText(), "")
+
+    -- a scan (or /cp price) gives the cloth a price
+    ns.Prices.SetManual(CLOTH, 2000)
+    ns.Fire("PRICES_CHANGED")
+    T.eq(ns.SellUI.cost:GetText(), "Cost each: 50s")
+    T.eq(ns.SellUI.profit:GetText(), GOOD .. "Profit each: 3g 48s 99c|r")
+
+    -- a price Sell takes over (manual price of the item itself) is drawn once
+    local ns2 = setup()
+    openSell()
+    putBag(ns2, 1, false)
+    ns2.Scanner.Stop("AH closed")
+    T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), 0)
+    ns2.Prices.SetManual(BAG, gold(7))
+    ns2.Fire("PRICES_CHANGED")
+    T.eq(ns2.Sell.State().unit, gold(7))
+    T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(7))
+  end,
+
+  money_changes_redraw_post_button = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    openSell()
+    putBag(ns, 3)
+    T.eq(CraftProfitSellPost:IsEnabled(), true)
+    T.eq(ns.SellUI.reason:GetText(), "")
+
+    -- the player spends their gold; Core fires MONEY_CHANGED on PLAYER_MONEY
+    Mock.money = 599                          -- the deposit is 600
+    ns.Fire("MONEY_CHANGED")
+    T.eq(CraftProfitSellPost:IsEnabled(), false)
+    T.eq(ns.SellUI.reason:GetText(), "Not enough gold for the deposit.")
+
+    Mock.money = 600
+    ns.Fire("MONEY_CHANGED")
+    T.eq(CraftProfitSellPost:IsEnabled(), true)
+    T.eq(ns.SellUI.reason:GetText(), "")
+
+    -- before the page was built the event is harmless
+    local fresh = setup()
+    fresh.Fire("MONEY_CHANGED")
+    fresh.Fire("PRICES_CHANGED")
+    T.eq(CraftProfitSellPost, nil)
   end,
 
   updates_follow_sell_changed_only_after_build = function(T)

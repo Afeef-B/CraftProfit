@@ -30,6 +30,7 @@ local built = false
 local drawing = false  -- the page is writing into its own inputs: that is not the player typing
 local shownId          -- id of the item the page last drew
 local drawnStatus      -- Sell's own status line as last drawn
+local drawnCount = {}  -- box -> the count Sell had when the page last drew it
 
 -- Widgets, set by Build: slot, icon, itemName, owned, price, stack, stacks,
 -- radios, deposit, net, cost, profit, post, reason, status, flip, listings.
@@ -57,9 +58,10 @@ end
 
 -- field is the State key, setter the Sell function that takes the new count.
 local function onCountChanged(box, field, setter)
-  -- An empty box is the player about to type a number.
-  if drawing or box:GetText() == "" then return end
+  if drawing then return end
+  -- An empty box (or a 0) is the player on the way to a number.
   local n = box:GetNumber()
+  if n < 1 then return end
   if n ~= Sell.State()[field] then Sell[setter](n) end
 end
 
@@ -181,8 +183,13 @@ local function drawPrice(unit)
   drawing = false
 end
 
+-- A box the player is typing in (it has the keyboard) is left alone while Sell's
+-- count is the one already drawn; OnEditFocusLost shows it afterwards. A count
+-- Sell changed on its own (another item, fewer in the bags) is drawn anyway.
 local function drawCount(box, n)
-  if box:GetNumber() == n then return end
+  local moved = drawnCount[box] ~= n
+  drawnCount[box] = n
+  if box:GetNumber() == n or (box:HasFocus() and not moved) then return end
   drawing = true
   box:SetNumber(n)
   drawing = false
@@ -296,5 +303,9 @@ ns.On("PAGE_SHOWN", function(key)
   SellUI.Update()
 end)
 ns.On("SELL_CHANGED", SellUI.Update)
+-- The cost lines follow the prices and Post follows the gold. Sell's own
+-- PRICES_CHANGED listener was registered when Sell.lua loaded, before this one.
+ns.On("PRICES_CHANGED", SellUI.Update)
+ns.On("MONEY_CHANGED", SellUI.Update)
 ns.On("PAGE_STATUS", function(text) showMessage(text or "") end)
 ns.On("PAGE_ERROR", function(msg) showMessage(BAD .. (msg or "") .. "|r") end)
