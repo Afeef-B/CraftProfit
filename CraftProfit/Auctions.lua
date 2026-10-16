@@ -230,14 +230,22 @@ local function undercutIndexes()
   return byId, total
 end
 
+-- { [id] = n } for the items that have undercut auctions (items without any have
+-- no entry), and how many there are in all. One pass over the owner list: a page
+-- that needs several counts asks for all of them at once.
+function Auctions.UndercutCounts()
+  local byId, total = undercutIndexes()
+  local counts = {}
+  for id, list in pairs(byId) do counts[id] = #list end
+  return counts, total
+end
+
 function Auctions.CountUndercut(id)
-  local list = undercutIndexes()[id]
-  return list and #list or 0
+  return (Auctions.UndercutCounts())[id] or 0
 end
 
 function Auctions.CountAllUndercut()
-  local _, total = undercutIndexes()
-  return total
+  return select(2, Auctions.UndercutCounts())
 end
 
 -- Cancel the auction `pick(byId)` names. ok, or false and why: "confirm" (the

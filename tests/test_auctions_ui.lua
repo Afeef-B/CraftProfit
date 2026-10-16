@@ -360,30 +360,50 @@ return {
     local ui = ns.AuctionsUI
     local page = ns.Tabs.Page("auctions")
     local line = ui.oldest
+    local function group(id)
+      for _, g in ipairs(ns.Auctions.Groups()) do
+        if g.id == id then return g end
+      end
+    end
     T.eq(line:GetText(), "", "nothing to cancel, nothing to say")
 
-    Mock.owned = { bagAuction(gold(420)), owned(CLOTH, CLOTH_NAME, gold(50)), owned(DUST, DUST_NAME, gold(5)) }
+    -- the ebon has two auctions: 400g (cheaper than Bob's 410g, so the item reads
+    -- "cheapest") and 420g (undercut, so it counts)
+    Mock.owned = {
+      bagAuction(gold(420)), owned(CLOTH, CLOTH_NAME, gold(50)), owned(DUST, DUST_NAME, gold(5)),
+      owned(EBON, EBON_NAME, gold(400)), owned(EBON, EBON_NAME, gold(420)),
+    }
     readAll(ns)
     T.eq(line:GetText(), "", "never checked")
 
     -- the dust is checked first and is not undercut: its age does not count
     cache(ns, DUST, { row("Me", gold(5)), row("Bob", gold(6)) })
     T.eq(line:GetText(), "")
-    Mock.now = Mock.now + 10 * 60
+
+    Mock.now = Mock.now + 5 * 60
+    cache(ns, EBON, { row("Me", gold(400)), row("Me", gold(420)), row("Bob", gold(410)) })
+    T.eq(group(EBON).status, "cheapest")
+    T.eq(ns.Auctions.CountUndercut(EBON), 1)
+    T.eq(line:GetText(), "Oldest check: now", "a cheapest item with a higher auction undercut counts")
+
+    Mock.now = Mock.now + 5 * 60
     cache(ns, CLOTH, { row("Me", gold(50)), row("Bob", gold(40)) })
-    T.eq(line:GetText(), "Oldest check: now", "one undercut item, just checked")
+    T.eq(line:GetText(), "Oldest check: 5m ago", "the ebon")
+
     Mock.now = Mock.now + 10 * 60
     cache(ns, BAG, { row("Me", gold(420)), row("Bob", gold(410)) })
-    T.eq(ns.Auctions.CountAllUndercut(), 2)
-    T.eq(line:GetText(), "Oldest check: 10m ago", "the cloth, not the 20 minutes of the dust")
+    T.eq(ns.Auctions.CountAllUndercut(), 3)
+    T.eq(line:GetText(), "Oldest check: 15m ago", "the ebon, not the 20 minutes of the dust")
 
     -- it ages with the page open
     Mock.now = Mock.now + 5 * 60
-    T.eq(line:GetText(), "Oldest check: 10m ago", "no event redraws it")
+    T.eq(line:GetText(), "Oldest check: 15m ago", "no event redraws it")
     page:GetScript("OnUpdate")(page, 15)
-    T.eq(line:GetText(), "Oldest check: 15m ago")
+    T.eq(line:GetText(), "Oldest check: 20m ago")
 
-    -- checking the cloth again makes the bag the oldest
+    -- checking the ebon again makes the cloth the oldest, then the bag
+    cache(ns, EBON, { row("Me", gold(400)), row("Me", gold(420)), row("Bob", gold(410)) })
+    T.eq(line:GetText(), "Oldest check: 15m ago")
     cache(ns, CLOTH, { row("Me", gold(50)), row("Bob", gold(40)) })
     T.eq(line:GetText(), "Oldest check: 5m ago")
 
@@ -392,6 +412,98 @@ return {
     readAll(ns)
     T.eq(ns.Auctions.CountAllUndercut(), 0)
     T.eq(line:GetText(), "")
+  end,
+
+  update_reads_the_owner_list_once = function(T)
+    local ns = setup()
+    openAuctions()
+    local page = ns.Tabs.Page("auctions")
+    Mock.owned = {
+      bagAuction(gold(420)), bagAuction(gold(400)), bagAuction(gold(420)),
+      owned(CLOTH, CLOTH_NAME, gold(50)), owned(DUST, DUST_NAME, gold(5)),
+      owned(EBON, EBON_NAME, gold(70)), owned(ORE, ORE_NAME, gold(50), { sold = true }),
+    }
+    readAll(ns)
+    -- the checks get younger down the list, so a count per group would run for every group
+    cache(ns, DUST, { row("Me", gold(5)), row("Bob", gold(6)) })
+    Mock.now = Mock.now + 60
+    cache(ns, CLOTH, { row("Me", gold(50)), row("Bob", gold(40)) })
+    Mock.now = Mock.now + 60
+    cache(ns, BAG, { row("Me", gold(420)), row("Me", gold(400)), row("Me", gold(420)), row("Bob", gold(410)) })
+    click(rowOf(ns, BAG_NAME))
+    T.ok(#ns.Auctions.Groups() >= 5, "several groups")
+
+    local reads = 0
+    local info = GetAuctionItemInfo
+    GetAuctionItemInfo = function(kind, i)
+      if kind == "owner" then reads = reads + 1 end
+      return info(kind, i)
+    end
+    local function measure(fn)
+      reads = 0
+      fn()
+      return reads
+    end
+
+    local pass = measure(function() ns.Auctions.UndercutCounts() end)
+    T.eq(pass, #Mock.owned, "a pass reads each auction once")
+    T.eq(measure(function() ns.AuctionsUI.Update() end), pass, "one redraw, one pass")
+    T.eq(measure(function() page:GetScript("OnUpdate")(page, 15) end), pass, "the tick too")
+
+    -- a price check lands for an item in the list: one redraw, not two
+    T.eq(measure(function() cache(ns, DUST, { row("Me", gold(5)), row("Bob", gold(6)) }) end), pass)
+    -- one for the item picked that is no longer in the list
+    ns.Auctions.Select(ORE)
+    Mock.owned = { bagAuction(gold(420)) }
+    readAll(ns)
+    T.eq(measure(function() cache(ns, ORE, { row("Bob", gold(6)) }) end), 1,
+      "a pass over the one auction left")
+    -- and none for an item the page does not show
+    T.eq(measure(function() cache(ns, CLOTH, { row("Bob", gold(40)) }) end), 0)
+  end,
+
+  hidden_page_does_not_redraw = function(T)
+    local ns = setup()
+    openAuctions()
+    fiveItems(ns)
+    local ui = ns.AuctionsUI
+    click(rowOf(ns, DUST_NAME))
+    local Util = ns.Util
+    local function dust() return rowOf(ns, DUST_NAME).status:GetText() end
+    T.eq(dust(), Util.ICON_WARN .. " tied")
+
+    local reads = 0
+    local info = GetAuctionItemInfo
+    GetAuctionItemInfo = function(kind, i)
+      if kind == "owner" then reads = reads + 1 end
+      return info(kind, i)
+    end
+
+    -- another tab: price checks of other pages and the owner list change things
+    openBrowse()
+    reads = 0
+    cache(ns, DUST, { row("Me", gold(5)), row("Bob", gold(4)) })
+    cache(ns, CLOTH, { row("Me", gold(30)), row("Bob", gold(40)) })
+    ns.Fire("AUCTIONS_CHANGED")
+    ns.Fire("LISTINGS_UPDATED", DUST)
+    ns.Fire("SCAN_FINISHED")
+    T.eq(reads, 0, "nothing is read while the page is not shown")
+    T.eq(dust(), Util.ICON_WARN .. " tied", "and nothing is drawn")
+    T.eq(ui.listings.lines[1].seller:GetText(), "YOU", "the table is the old one")
+
+    -- showing the page draws what changed
+    openAuctions()
+    T.eq(dust(), Util.ICON_WARN .. " undercut 1g (Bob)")
+    T.eq(ui.listings.lines[1].seller:GetText(), "Bob")
+    T.ok(reads > 0)
+
+    -- the AH closed: same
+    AuctionFrame:Hide()
+    reads = 0
+    ns.Fire("AUCTIONS_CHANGED")
+    cache(ns, DUST, { row("Me", gold(5)), row("Bob", gold(5)) })
+    T.eq(reads, 0)
+    T.eq(dust(), Util.ICON_WARN .. " undercut 1g (Bob)")
   end,
 
   ages_tick_without_events = function(T)

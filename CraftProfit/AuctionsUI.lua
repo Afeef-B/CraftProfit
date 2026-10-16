@@ -136,7 +136,7 @@ local function onTick(_, elapsed)
   sinceDraw = 0
   drawList()
   drawTitle(Auctions.Selected())
-  drawOldest(Auctions.Groups(), Auctions.CountAllUndercut())
+  drawOldest(Auctions.Groups(), (Auctions.UndercutCounts()))
 end
 
 -- Building
@@ -332,17 +332,14 @@ local function drawListings(id)
 end
 
 -- "Oldest check: 5m ago", beside Cancel next undercut: the oldest check among
--- the items it would cancel on, so a stale one is seen before the player cancels
--- (and loses a deposit). Empty when there is nothing to cancel.
-function drawOldest(groups, all)
+-- the items it would cancel on (counts[id] > 0, from Auctions.UndercutCounts),
+-- so a stale one is seen before the player cancels (and loses a deposit). Empty
+-- when there is nothing to cancel.
+function drawOldest(groups, counts)
   local oldest
-  if all > 0 then
-    for _, g in ipairs(groups) do
-      local _, age = Listings.Get(g.id)
-      if age and (not oldest or age > oldest) and Auctions.CountUndercut(g.id) > 0 then
-        oldest = age
-      end
-    end
+  for _, g in ipairs(groups) do
+    local _, age = Listings.Get(g.id)
+    if counts[g.id] and age and (not oldest or age > oldest) then oldest = age end
   end
   AuctionsUI.oldest:SetText(oldest and ("Oldest check: " .. ago(oldest)) or "")
 end
@@ -354,16 +351,17 @@ local function drawButtons(groups, selected)
   end
   setEnabled(AuctionsUI.check, active)
 
-  local all = Auctions.CountAllUndercut()
+  -- one pass over the owner list for every count on the page
+  local counts, all = Auctions.UndercutCounts()
   AuctionsUI.cancelNext:SetText("Cancel next undercut (" .. all .. ")")
   setEnabled(AuctionsUI.cancelNext, all > 0)
 
-  local own = selected and Auctions.CountUndercut(selected) or 0
+  local own = selected and counts[selected] or 0
   AuctionsUI.cancelUndercut:SetText("Cancel undercut (" .. own .. ")")
   setEnabled(AuctionsUI.cancelUndercut, own > 0)
 
   setEnabled(AuctionsUI.undercut, selected ~= nil)
-  drawOldest(groups, all)
+  drawOldest(groups, counts)
 end
 
 -- A reply or notice stays until Auctions' own status changes.
@@ -375,9 +373,10 @@ local function drawStatus()
   AuctionsUI.status:SetText(message or Auctions.status)
 end
 
--- Redraws everything from Auctions.
+-- Redraws everything from Auctions, while the page is the one shown (showing it
+-- redraws, so nothing is lost; a price check from another page costs nothing).
 function AuctionsUI.Update()
-  if not built then return end
+  if not built or not ns.Tabs.IsShown("auctions") then return end
   local groups, selected = Auctions.Groups(), Auctions.Selected()
   if selected ~= shownId then itemChanged(selected) end
   sinceDraw = 0
@@ -406,7 +405,15 @@ ns.On("AUCTIONS_CHANGED", function()
   if message == WAIT_LIST then message = nil end  -- the owner list answered
   AuctionsUI.Update()
 end)
-ns.On("LISTINGS_UPDATED", function() AuctionsUI.Update() end)
+-- An item in the list is redrawn by AUCTIONS_CHANGED (Auctions rebuilds its groups
+-- and fires it); this covers the picked item when it is not in the list any more.
+ns.On("LISTINGS_UPDATED", function(id)
+  if id ~= Auctions.Selected() then return end
+  for _, g in ipairs(Auctions.Groups()) do
+    if g.id == id then return end
+  end
+  AuctionsUI.Update()
+end)
 ns.On("PAGE_STATUS", function(text) showMessage(text or "") end)
 ns.On("PAGE_ERROR", function(msg) showMessage(BAD .. (msg or "") .. "|r") end)
 ns.On("SCAN_STATUS", function(text) showMessage(text or "") end)

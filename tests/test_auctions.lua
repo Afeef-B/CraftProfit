@@ -551,6 +551,57 @@ return {
     T.eq(#Mock.cancelled, 3, "the cheapest and the unchecked auctions are kept")
   end,
 
+  undercut_counts_match_single_counts = function(T)
+    local ns = setup()
+    Mock.owned = {
+      owned(CLOTH, CLOTH_NAME, gold(120)),
+      owned(DUST, DUST_NAME, gold(100)),
+      bagAuction(gold(430)),
+      owned(ORE, ORE_NAME, gold(999)),
+      bagAuction(gold(420)),
+      bagAuction(gold(450), { sold = true }),   -- sold: never counted
+      bagAuction(gold(440), { bid = 5 }),       -- a bid on it: never counted
+      bagAuction(gold(460), { suffix = 7 }),    -- a random-suffix variant: never counted
+      bagAuction(gold(400)),                    -- the cheapest: kept
+    }
+    cache(ns, DUST, { row("Me", gold(100)), row("Bob", gold(150)) })
+    cache(ns, BAG, { row("Me", gold(400)), row("Me", gold(420)), row("Bob", gold(410)) })
+    cache(ns, CLOTH, { row("Me", gold(120)), row("Bob", gold(110)) })
+    readAll(ns)
+
+    local counts, total = ns.Auctions.UndercutCounts()
+    T.eq(total, 3)
+    T.eq(counts[BAG], 2)
+    T.eq(counts[CLOTH], 1)
+    T.eq(counts[DUST], nil, "the cheapest: no entry")
+    T.eq(counts[ORE], nil, "never price-checked: no entry")
+
+    -- the same answers as the single counts, for every item there is
+    for _, id in ipairs({ BAG, CLOTH, DUST, ORE, 123456 }) do
+      T.eq(counts[id] or 0, ns.Auctions.CountUndercut(id), "item " .. id)
+    end
+    T.eq(total, ns.Auctions.CountAllUndercut())
+
+    -- a pass over the owner list, once
+    local reads = 0
+    local info = GetAuctionItemInfo
+    GetAuctionItemInfo = function(kind, i)
+      if kind == "owner" then reads = reads + 1 end
+      return info(kind, i)
+    end
+    ns.Auctions.UndercutCounts()
+    T.eq(reads, #Mock.owned, "one read per auction")
+
+    -- the counts follow the list after a cancel (the cloth is undercut, so it goes first)
+    T.eq(ns.Auctions.CancelNextUndercut(), true)
+    T.ok(Mock.deliverOwned(ns))
+    local after, afterTotal = ns.Auctions.UndercutCounts()
+    T.eq(afterTotal, 2)
+    T.eq(after[BAG], 2)
+    T.eq(after[CLOTH], nil)
+    T.eq(afterTotal, ns.Auctions.CountAllUndercut())
+  end,
+
   outlier_only_is_not_undercut = function(T)
     local ns = setup()
     Mock.owned = { bagAuction(gold(420)) }
