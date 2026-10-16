@@ -95,25 +95,38 @@ installed they sit to the right of Auctionator's.
    419g 99s. For cheap items (1 silver or less) it is 1 copper under. It
    never undercuts you: if an auction of yours or your alts' is already the
    cheapest, it uses the same price as that one. If nobody else sells the
-   item it uses your own price (`/cp price`), then Auctionator's, and
+   item it matches the cheapest listing of your own, if you have one;
+   otherwise it uses your own price (`/cp price`), then Auctionator's, and
    otherwise the box stays empty until you type one. A price you type is
-   never overwritten by the search.
+   never overwritten by the search. Items with a random enchant ("of the
+   Monkey", "of the Bear") share one item id but not a price, so the box
+   stays empty and the page says "Random-enchant item - type a price." You
+   can type one, or click a row of the list.
 4. **Mistake listings are not the market.** A listing under 50% of the next
    one (for example 50g next to 420g) is almost always a mistake by the
    seller. It is ignored when working out your price, marked **flip** in the
    list, and a red notice appears under the money lines:
    "Possible mistake: Bob sells 1 at 50g (next 420g). Flip profit ~349g",
-   with a **Buy it** button. The notice assumes you resell at the next price
+   with a **Buy it (50g)** button. The amount in brackets is what the whole
+   stack costs, which is what a click spends: for 20 at 5g each the button
+   says "Buy it (100g)". The notice assumes you resell at the next price
    after the AH cut. Clicking **Buy it** buys exactly that listing. If the
-   game is already showing it, it is bought at once ("Bought for 50g").
-   Otherwise the button says "Finding it...", then "Buy now (50g)": click once
-   more to buy. If someone beat you to it, it says "Gone - try again". It only
-   ever buys when you click, and only the listing shown. Be quick: other
-   players see the mistake too, and the chance goes.
+   game is already showing it, the bid is placed at once ("Bid placed for
+   50g"). Otherwise the button says "Finding it...", then "Buy now (50g)":
+   click once more to buy. If someone beat you to it, it says "Gone - try
+   again (50g)". Once bought the button reads "Bought" and stays off, also
+   after you close the Auction House and open it again, until the next price
+   check replaces the list. It only ever buys when you click, and only the
+   listing shown. Be quick: other players see the mistake too, and the chance
+   goes. Clicking the flip row in the list does not use it for your price:
+   it says "That's a mistake listing - use Buy it to flip it." Listings of
+   random-enchant items are never offered as a flip.
    Change the 50% with `/cp outlier`.
 5. **Stack size x Stacks.** By default it offers everything you carry: gear
    one per auction, stackable items in full stacks. Change either box. If you
    ask for more than you have, Post is off and the page says "You only have N."
+   A stack size above the item's maximum stack says "Stack size is more than
+   N."
 6. **Duration**: 12h, 24h or 48h. The default is 24h, and it remembers your
    last choice.
 7. **Money lines.**
@@ -125,13 +138,17 @@ installed they sit to the right of Auctionator's.
      can still post below cost. If material prices are missing it says "cost
      unknown - scan it in Craft Profit".
 8. **Click a row in the listings** to use it for your price: one step under
-   that seller's price, or exactly the same price when the row is yours.
+   that seller's price, or exactly the same price when the row is yours. (A
+   mistake listing is for **Buy it**, see 4.)
 9. **Post.** The button says "Post 2 auctions" (or "Post 1 auction"). When it
    is off, the page says why next to it ("Type a price.", "Checking
    prices...", "Not enough gold for the deposit."). While posting you see
    "Posting 2/3", then "Posted 3 auctions", and the item is searched again so
-   the list shows your new auctions. If the server refuses the post, the page
-   shows the game's message and Post comes back.
+   the list shows your new auctions. When the last one is up the sell slot is
+   empty, and the list stays on that item, with your new auctions as **YOU**,
+   until you put another item in. You can't put another item in while the
+   post is going ("Wait until the post finishes."). If the server refuses the
+   post, the page shows the game's message and Post comes back.
 
 ## CP Auctions
 
@@ -251,20 +268,27 @@ once. Use something cheap you don't mind posting, such as a Glacial Bag.
 - [ ] The **CP Sell** and **CP Auctions** tabs appear to the right of
       Auctionator's tabs and don't overlap them.
 - [ ] Open CP Sell and **Alt+click** an item in your bags: it lands in the
-      slot. If Alt+click does nothing, check that Alt isn't rebound in Key
-      Bindings (modifier settings).
+      slot. If Alt+click does nothing (some bag addons replace the bag
+      buttons), drag the item onto the slot instead.
 - [ ] After the first price check, put a **different** item in. The price
       fills itself in again. (If it stops filling itself in, please report it.)
 - [ ] In the **Stacks** box, clear it and type a number. It stays as typed
       after a price check, and when you click somewhere else the box shows the
       real number.
-- [ ] Post **1 Glacial Bag**: "Posting..." then "Posted 1 auction", and the
-      list now shows your auction as YOU.
+- [ ] Post **1 Glacial Bag**: "Posting..." then "Posted 1 auction". It must
+      not stay on "Posting...".
+- [ ] After posting, the sell slot is empty and CP Sell still lists that
+      item, now with your new auction as YOU.
 - [ ] Post **2 stacks** of Bolts of Frostweave (or Bolts of Imbued Frostweave): "Posting
-      1/2", "Posting 2/2", "Posted 2 auctions".
-- [ ] A post the server refuses (for example without enough gold for the
-      deposit) shows the game's message and doesn't leave "Posting..."
-      stuck.
+      1/2", "Posting 2/2", "Posted 2 auctions". While it runs, dropping
+      another item on the slot is refused ("Wait until the post finishes.").
+- [ ] Type a stack size above the item's maximum (for example 21 of a
+      20-stack): Post is off and the page says "Stack size is more than 20."
+- [ ] A random-enchant item ("of the Monkey") leaves the price empty and the
+      page says "Random-enchant item - type a price."
+- [ ] A post the server refuses shows the game's message and doesn't leave
+      "Posting..." stuck. Hard to provoke (Post is off when you can't pay the
+      deposit), so skip it if you can't.
 - [ ] On CP Auctions press **Check undercuts**: every item gets a status.
 - [ ] Click an item: its listings show, with your auctions as **YOU**.
 - [ ] **Cancel** one undercut auction (the deposit warning appears the first
@@ -273,10 +297,14 @@ once. Use something cheap you don't mind posting, such as a Glacial Bag.
       says "Collect it from your mailbox first."
 - [ ] Log in an alt, post something, then back on your main check that the
       alt's auction shows as **YOU (altname)** and isn't undercut.
-- [ ] A **flip** notice appears on a mistake listing, with a Buy it button.
-      Only press it if you really want that item.
+- [ ] A **flip** notice appears on a mistake listing, with a Buy it button
+      that names the price of the whole stack. Only press it if you really
+      want that item.
+- [ ] After buying a flip, the list refreshes, and a scan that was running
+      (for example Check undercuts on CP Auctions) carries on to the end.
 - [ ] Close the Auction House while on CP Sell and open it again: no Lua
-      errors, and it opens on the Browse tab.
+      errors, it opens on the Browse tab, and nothing is searched until you
+      ask.
 
 ## Development
 
