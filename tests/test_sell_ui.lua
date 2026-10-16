@@ -635,6 +635,30 @@ return {
     T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(499, 99))
   end,
 
+  -- I3: the mistake listing is for Buy it; clicking it must not price one step
+  -- under it.
+  listings_flip_row_click_keeps_the_price = function(T)
+    local ns = setup()
+    Mock.ah.auctions = {
+      bagAuction("Flipper", gold(50)), bagAuction("Bob", gold(420)), bagAuction("Carl", gold(425)),
+    }
+    openSell()
+    putBag(ns, 1)
+    T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(419, 99))
+    local line = ns.SellUI.listings.lines[1]
+    T.eq(line.row.seller, "Flipper")
+    click(line)
+    T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(419, 99), "the price box is untouched")
+    T.eq(ns.Sell.State().unit, gold(419, 99))
+    T.eq(ns.SellUI.status:GetText(), "That's a mistake listing - use Buy it to flip it.")
+    T.eq(CraftProfitSellPost:IsEnabled(), true)
+
+    -- another row still works, and the note goes
+    click(ns.SellUI.listings.lines[3])
+    T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(424, 99))
+    T.eq(ns.SellUI.status:GetText(), "")
+  end,
+
   item_change_resets_scroll_and_flip_widget = function(T)
     local ns = setup()
     Mock.ah.auctions = {

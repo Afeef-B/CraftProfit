@@ -149,9 +149,12 @@ function Flip.Buy(id, name)
   local index = findOnPage(id, row)
   if index then
     PlaceAuctionBid("list", index, row.buyout)
+    -- The client refreshes the list after a buyout. A scan that is waiting for
+    -- its own answer would take that refresh for it: have it ask again.
+    if ns.Scanner.IsBusy() then ns.Scanner.Resend() end
     setState(id, row, "bought")
     ns.Scanner.PriceCheck({ id = id, name = name })
-    return reply(id, row, "bought", true, "Bought for " .. ns.Util.FormatMoney(row.buyout))
+    return reply(id, row, "bought", true, "Bid placed for " .. ns.Util.FormatMoney(row.buyout))
   end
 
   local stale = pagePrint() -- before the search replaces what the client shows
@@ -221,11 +224,20 @@ function Flip.Tick(elapsed)
   end
 end
 
--- Forget every state, e.g. when the Auction House closes: no answer will come.
+-- Forget the states that wait for an answer, e.g. when the Auction House
+-- closes: no answer will come. A bought listing stays bought: the bid went
+-- through, and the same stack must not be offered again when the AH reopens.
+-- A fresh price check replaces its rows, which ends it.
 function Flip.Reset()
-  local ids = {}
-  for id in pairs(track) do ids[#ids + 1] = id end
-  track, messages = {}, {}
+  local kept, keptMessages, ids = {}, {}, {}
+  for id, entry in pairs(track) do
+    if entry.state == "bought" then
+      kept[id], keptMessages[id] = entry, messages[id]
+    else
+      ids[#ids + 1] = id
+    end
+  end
+  track, messages = kept, keptMessages
   for _, id in ipairs(ids) do ns.Fire("FLIP_CHANGED", id) end
 end
 
@@ -233,7 +245,7 @@ local widgetCount = 0
 
 -- The red notice and Buy button for the item a page shows. getItem() returns
 -- id, name. Hidden while the item has no mistake listing. The reply to a
--- click ("Bought for ...", "Not enough gold", ...) is added to the notice
+-- click ("Bid placed for ...", "Not enough gold", ...) is added to the notice
 -- (and sent as PAGE_STATUS). The page calls w:Update() when the shown item
 -- changes; a click only works on the listing that was drawn.
 -- Returns w with w.frame, w.notice, w.button and w:Update().
@@ -275,18 +287,21 @@ function Flip.CreateWidget(parent, getItem)
     local row = info.row
     drawnId, drawnRow = id, row
 
+    -- A click spends the whole stack, not the price each: every label that can
+    -- lead to a purchase says how much.
     local state = Flip.State(id)
+    local total = " (" .. Util.FormatMoney(row.buyout) .. ")"
     local label, enabled
     if state == "finding" then
       label, enabled = "Finding it...", false
     elseif state == "ready" then
-      label, enabled = "Buy now (" .. Util.FormatMoney(row.buyout) .. ")", true
+      label, enabled = "Buy now" .. total, true
     elseif state == "gone" then
-      label, enabled = "Gone - try again", true
+      label, enabled = "Gone - try again" .. total, true
     elseif state == "bought" then
       label, enabled = "Bought", false
     else
-      label, enabled = "Buy it", true
+      label, enabled = "Buy it" .. total, true
     end
 
     local text = RED .. Util.ICON_GOLD .. " Possible mistake: " .. (row.seller or "?")

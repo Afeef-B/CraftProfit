@@ -996,7 +996,7 @@ return {
     fiveItems(ns)
     click(rowOf(ns, CLOTH_NAME))
     local flip = ns.AuctionsUI.flip
-    T.eq(flip.button:GetText(), "Buy it")
+    T.eq(flip.button:GetText(), "Buy it (1g)")
     T.eq(flip.button:IsEnabled(), true)
     T.ok(flip.notice:GetText():find("Flipper", 1, true), "the notice is about the picked item")
     T.eq(#Mock.bought, 0, "nothing is bought by looking")

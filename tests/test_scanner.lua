@@ -153,6 +153,34 @@ return {
     T.eq((P.GetAH(CLOTH)), 1000)
   end,
 
+  -- M2: Flip.Buy calls this right after a buyout.
+  resend_sends_a_waiting_query_again = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }
+    S.Resend()                          -- idle: nothing to do
+    T.eq(S.IsBusy(), false)
+
+    S.StartTargeted({ CLOTH_ITEM })
+    S.Resend()                          -- query not sent yet: nothing to repeat
+    S.Tick(0.1)
+    T.eq(#Mock.queries, 1)
+    S.Resend()                          -- waiting for the answer
+    Mock.pending = false
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    T.eq(S.IsBusy(), true, "that page is not the answer")
+    S.Tick(0.1)
+    T.eq(#Mock.queries, 2, "asked again")
+    T.ok(Mock.pump(ns))
+    T.eq(select(3, ns.Prices.GetAH(CLOTH)), 1)
+
+    -- a Scan All has no query to repeat
+    S.StartScanAll()
+    S.Tick(0.1)
+    S.Resend()
+    T.eq(#Mock.queries, 3, "only the getAll request went out")
+    S.Stop("test")
+  end,
+
   nil_links_wait_then_read = function(T)
     local ns, S, P = load()
     Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }

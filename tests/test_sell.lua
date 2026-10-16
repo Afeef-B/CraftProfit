@@ -834,9 +834,15 @@ return {
     T.eq(ns.Sell.Post(), true)
     T.eq(#Mock.started, 2)
 
-    -- a different item in the slot ends the lock
+    -- a different item can't take the slot while the post is under way: that
+    -- would end the lock with the old multisell still sending (see
+    -- drop_refused_while_posting). It can once the post is done.
     inBag(0, 2, OTHER, OTHER_NAME, 1)
     T.eq(ns.Sell.State().reason, "posting")
+    T.eq(ns.Sell.PutItem(0, 2), false)
+    T.eq(ns.Sell.State().item.id, BAG)
+    T.eq(ns.Sell.State().reason, "posting", "the lock holds")
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 3, 3)
     T.ok(ns.Sell.PutItem(0, 2))
     T.eq(ns.Sell.State().item.id, OTHER)
     T.eq(ns.Sell.State().reason, "checking", "not 'posting' any more")
@@ -1365,5 +1371,114 @@ return {
     for _ in src:gmatch("Sell%.Post%(") do calls = calls + 1 end
     T.eq(calls, 1, "only the definition")
     T.eq(src:find("CancelAuction", 1, true), nil, "Sell never cancels")
+  end,
+  -- I1: the multisell that is under way owns the slot, the inputs and Post.
+  drop_refused_while_posting = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, gold(20)) }
+    inBag(0, 1, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 2, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 3, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 4, BAG, BAG_NAME, 1)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    T.eq(ns.Sell.State().stacks, 3)
+    T.eq(ns.Sell.Post(), true)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 3)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 1, 3)
+    local queries = #Mock.queries
+
+    local function refused(label, ok, why)
+      T.eq(ok, false, label .. ": refused")
+      T.eq(why, "posting", label .. ": reason")
+      local s = ns.Sell.State()
+      T.eq(Mock.cursor, nil, label .. ": the item went back to the bags")
+      T.eq(Mock.bags[0][4].id, BAG, label .. ": still in its bag")
+      T.eq(Mock.sellSlot.id, CLOTH, label .. ": the slot is the same")
+      T.eq(s.item.id, CLOTH, label .. ": so is our item")
+      T.eq(ns.Sell.lastId, CLOTH, label .. ": and the item to check afterwards")
+      T.eq(s.reason, "posting", label .. ": the lock holds")
+      T.eq(s.canPost, false)
+      T.eq(s.status, "Wait until the post finishes.", label)
+      T.eq(#Mock.queries, queries, label .. ": no price check for the refused item")
+      T.eq(ns.Scanner.IsBusy(), false, label)
+    end
+
+    -- the player drags another item onto the slot
+    PickupContainerItem(0, 4)
+    T.eq(Mock.cursor.id, BAG)
+    local before = changes.n
+    local ok, why = ns.Sell.DropCursorItem()
+    refused("drop", ok, why)
+    T.ok(changes.n > before, "the page is told")
+
+    -- Alt+click on a bag item
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 2, 3)
+    T.eq(ns.Sell.State().status, "Posting 2/3")
+    ok, why = ns.Sell.PutItem(0, 4)
+    refused("alt+click", ok, why)
+
+    -- CP Auctions' Undercut button
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 2, 3)
+    ok, why = ns.Sell.PutItemById(BAG)
+    refused("by id", ok, why)
+
+    -- the multisell's last update still completes normally
+    Mock.ah.auctions[#Mock.ah.auctions + 1] = auction(CLOTH, CLOTH_NAME, "Me", 20, gold(19, 99))
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 3, 3)
+    local s = ns.Sell.State()
+    T.eq(s.status, "Posted 3 auctions")
+    T.ok(s.reason ~= "posting", "the lock is gone")
+    T.eq(s.reason, "checking", "Post waits for the check after posting")
+    T.ok(ns.Scanner.IsBusy(), "the check after posting started for the posted item")
+    T.ok(Mock.pump(ns))
+    T.eq(Mock.queries[#Mock.queries][1], CLOTH_NAME)
+    T.eq(ns.Sell.State().item.id, CLOTH)
+    T.eq(ns.Sell.State().status, "Posted 3 auctions")
+
+    -- and once nothing is posting, the other item goes in
+    PickupContainerItem(0, 4)
+    T.eq(ns.Sell.DropCursorItem(), true)
+    T.eq(ns.Sell.State().item.id, BAG)
+  end,
+
+  -- I3: a mistake listing is bought with Buy it, not priced against.
+  pick_row_refuses_a_mistake_listing = function(T)
+    local ns = setup()
+    local changes = events(ns)
+    Mock.ah.auctions = {
+      bagAuction("Flipper", gold(50)), bagAuction("Bob", gold(420)), bagAuction("Carl", gold(425)),
+    }
+    putBag(ns, 1)
+    local s = ns.Sell.State()
+    T.eq(s.unit, gold(419, 99))
+    local rows = s.listings
+    T.eq(rows[1].seller, "Flipper")
+    T.eq(rows[1].outlier, true)
+    changes.n = 0
+
+    local ok, why = ns.Sell.PickRow(rows[1])
+    T.eq(ok, false)
+    T.eq(why, "outlier")
+    s = ns.Sell.State()
+    T.eq(s.unit, gold(419, 99), "not one step under the mistake")
+    T.eq(s.canPost, true, "the check still counts")
+    T.eq(s.status, "That's a mistake listing - use Buy it to flip it.")
+    T.eq(changes.n, 1, "the page is told")
+
+    -- the price was not marked as chosen: a newer price check still sets it
+    local fresh = ns.Listings.Normalize({
+      { count = 1, buyout = gold(400), seller = "Bob", page = 0, index = 1 },
+    }, {}, 0.5)
+    ns.Listings.Store(BAG, fresh)
+    T.eq(ns.Sell.State().unit, gold(399, 99))
+
+    -- a row that is not a mistake is picked as before, and the note goes
+    rows = ns.Sell.State().listings
+    ns.Sell.PickRow(rows[1])
+    s = ns.Sell.State()
+    T.eq(s.unit, gold(399, 99))
+    T.eq(s.status, "")
   end,
 }

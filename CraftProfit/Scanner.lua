@@ -345,12 +345,19 @@ function Scanner.HandleEvent(event)
   end
 end
 
+-- The page the client shows is not the answer to the query that is waiting
+-- (someone else searched, or the client refreshed the list after a buyout):
+-- send the query again. A scan that is not waiting for a page is left alone.
+function Scanner.Resend()
+  if state == "wait" then state = "send" end
+end
+
 -- Hooked onto QueryAuctionItems. Someone else searched while we waited, so
 -- the results that arrive will be theirs: search again.
 function Scanner.OnQuery()
   if Scanner.sending then return end
   if state == "wait" then
-    state = "send"
+    Scanner.Resend()
   elseif state == "allWait" or state == "allRead" then
     -- The server replaces the full list with their results; can't recover.
     Scanner.Stop("interrupted by another search")

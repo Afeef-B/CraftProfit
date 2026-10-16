@@ -21,8 +21,13 @@ local CANT_AUCTION = "This item can't be auctioned."
 local SEARCHING = "Searching..."
 local WAITING = "Waiting for the current scan..."
 local NO_ANSWER = "No answer from the Auction House - try again"
--- Notes that only describe a price check in progress; they go away with it.
-local TRANSIENT = { [SEARCHING] = true, [WAITING] = true, [NO_ANSWER] = true }
+local POST_BUSY = "Wait until the post finishes."
+local MISTAKE_ROW = "That's a mistake listing - use Buy it to flip it."
+-- Notes that only describe a price check in progress, or a click that did
+-- nothing; they go away with the next answer.
+local TRANSIENT = {
+  [SEARCHING] = true, [WAITING] = true, [NO_ANSWER] = true, [MISTAKE_ROW] = true,
+}
 
 local db
 local item                  -- { id, name, texture, maxStack, owned } or nil
@@ -282,6 +287,16 @@ function Sell.OnSlotChanged(id)
   changed()
 end
 
+-- A post is under way: the game's own sell frame blocks the slot, the inputs
+-- and the Create button until the last auction is up, so does this page. The
+-- item the player is carrying goes back to the bags.
+local function refuseWhilePosting()
+  ClearCursor()
+  status = POST_BUSY
+  changed()
+  return false, "posting"
+end
+
 -- The cursor holds an item we just clicked into the sell slot (or tried to).
 local function place(id)
   local oldName = GetAuctionSellItemInfo()
@@ -307,14 +322,17 @@ local function place(id)
 end
 
 -- Drag-and-drop onto our slot: whatever the cursor carries goes in.
+-- ok, or false and "posting".
 function Sell.DropCursorItem()
   local kind, id = GetCursorInfo()
   if kind ~= "item" or not id then return false end
+  if posting then return refuseWhilePosting() end
   return place(id)
 end
 
--- Alt+click on a bag item.
+-- Alt+click on a bag item. ok, or false and "posting".
 function Sell.PutItem(bag, slot)
+  if posting then return refuseWhilePosting() end
   PickupContainerItem(bag, slot)
   local kind, id = GetCursorInfo()
   if kind ~= "item" or not id then
@@ -324,8 +342,9 @@ function Sell.PutItem(bag, slot)
   return place(id)
 end
 
--- ok, or false and "not-in-bags" / "put-failed".
+-- ok, or false and "not-in-bags" / "put-failed" / "posting".
 function Sell.PutItemById(id)
+  if posting then return refuseWhilePosting() end
   for bag = 0, MAX_BAG do
     for slot = 1, GetContainerNumSlots(bag) do
       if ns.Util.ItemIDFromLink(GetContainerItemLink(bag, slot)) == id then
@@ -374,16 +393,24 @@ function Sell.SetDuration(d)
 end
 
 -- Click on a listings row: one step under it, or equal to it when it is ours
--- (or an alt's). Rows without a buyout have no price to follow.
+-- (or an alt's). Rows without a buyout have no price to follow, and a mistake
+-- listing is something to buy, not a price: ok, or false and "outlier".
 function Sell.PickRow(row)
   if not row or (row.unit or 0) <= 0 then return end
+  if row.outlier then
+    status = MISTAKE_ROW
+    changed()
+    return false, "outlier"
+  end
   if row.mine then
     unit = row.unit
   else
     unit = ns.Listings.StepUnder(row.unit)
   end
   priceEdited = true
+  if status == MISTAKE_ROW then status = "" end
   changed()
+  return true
 end
 
 -- Everything the page shows. `reason` says why canPost is false:
