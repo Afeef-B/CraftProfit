@@ -111,17 +111,71 @@ function Mock.reset()
     Mock.pending = true
   end
   CanSendAuctionQuery = function() return Mock.ah.canQuery, Mock.ah.canQueryAll end
-  GetNumAuctionItems = function(kind) return #Mock.list, Mock.total end
+  GetNumAuctionItems = function(kind)
+    if kind == "owner" then return #Mock.ownerBatch(), #Mock.owned end
+    return #Mock.list, Mock.total
+  end
   GetAuctionItemInfo = function(kind, i)
+    if kind == "owner" then
+      local a = Mock.ownerBatch()[i]
+      -- name, texture, count, quality, canUse, level, minBid, minIncrement,
+      -- buyoutPrice, bidAmount, highBidder, owner, saleStatus (1 = sold)
+      return a.name, a.texture or "tex", a.count, 1, 1, 80, a.buyout, 0, a.buyout,
+        a.bid or 0, a.bid and "Bidder" or nil, Mock.playerName or "Me", a.sold and 1 or 0
+    end
     local a = Mock.list[i]
     local owner = nil
     if not Mock.ah.nilOwners then owner = a.seller or "Seller" end
     return a.name, "tex", a.count, 1, 1, 80, 1, 0, a.buyout, 0, nil, owner
   end
   GetAuctionItemLink = function(kind, i)
-    local a = Mock.list[i]
+    local a = (kind == "owner" and Mock.ownerBatch() or Mock.list)[i]
     if Mock.ah.nilLinks or a.nilLink then return nil end
     return Mock.Link(a.id, a.name)
+  end
+
+  -- Your own auctions: Mock.owned = { { id, name, count, buyout, sold?, timeLeft?,
+  -- bid?, texture?, nilLink? } } (timeLeft 1 short .. 4 very long, default 3; bid
+  -- = a bid is on it). The loaded batch is the whole list, or with
+  -- Mock.ownerPaged the 50 entries of the page last asked for (the client's
+  -- own Auctions tab reads one batch; paging is the case where it is smaller than
+  -- the total). GetOwnerAuctionItems(page) records the page (Mock.ownerPage, and
+  -- every request in Mock.ownerRequests) and queues the AUCTION_OWNED_LIST_UPDATE
+  -- (Mock.ownerPending); tests deliver it with Mock.deliverOwned(ns).
+  -- CancelAuction(i) takes entry i of the loaded batch out of Mock.owned and
+  -- records { index, auction } in Mock.cancelled; CanCancelAuction is false for a
+  -- sold entry.
+  Mock.owned, Mock.ownerPaged, Mock.ownerPage = {}, false, 0
+  Mock.ownerRequests, Mock.ownerPending = {}, false
+  Mock.cancelled = {}
+  Mock.ownerBatch = function()
+    if not Mock.ownerPaged then return Mock.owned end
+    local batch = {}
+    local first = Mock.ownerPage * 50
+    for i = first + 1, math.min(#Mock.owned, first + 50) do batch[#batch + 1] = Mock.owned[i] end
+    return batch
+  end
+  GetOwnerAuctionItems = function(page)
+    Mock.ownerPage = page or 0
+    Mock.ownerRequests[#Mock.ownerRequests + 1] = Mock.ownerPage
+    Mock.ownerPending = true
+  end
+  GetAuctionItemTimeLeft = function(kind, i)
+    return Mock.ownerBatch()[i].timeLeft or 3
+  end
+  CanCancelAuction = function(i)
+    local a = Mock.ownerBatch()[i]
+    return a ~= nil and not a.sold
+  end
+  CancelAuction = function(i)
+    local a = Mock.ownerBatch()[i]
+    Mock.cancelled[#Mock.cancelled + 1] = { index = i, auction = a }
+    for j, entry in ipairs(Mock.owned) do
+      if entry == a then
+        table.remove(Mock.owned, j)
+        break
+      end
+    end
   end
 
   -- Buying out a row of the "list" page: recorded in Mock.bought (one
@@ -385,7 +439,13 @@ function Mock.installUI()
   FauxScrollFrame_SetOffset = function(frame, offset) frame.offset = offset end
   FauxScrollFrame_OnVerticalScroll = function() end
   StaticPopupDialogs = {}
-  StaticPopup_Show = function(which) Mock.popup = which end
+  -- StaticPopup_Show(which, text1, text2, data): tests read Mock.popup and run
+  -- StaticPopupDialogs[which].OnAccept(nil, Mock.popupData) as the Accept click.
+  Mock.popupData = nil
+  StaticPopup_Show = function(which, text1, text2, data)
+    Mock.popup, Mock.popupData = which, data
+  end
+  ACCEPT, CANCEL = "Accept", "Cancel"
   -- EasyMenu(menuList, menuFrame, anchor, x, y, displayMode): tests read Mock.menu.
   Mock.menu, Mock.menuAnchor = nil, nil
   EasyMenu = function(menuList, menuFrame, anchor)
@@ -421,6 +481,17 @@ function Mock.deliver(ns)
   if Mock.pending then
     Mock.pending = false
     ns.Scanner.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    return true
+  end
+  return false
+end
+
+-- The server answered our GetOwnerAuctionItems: Core routes
+-- AUCTION_OWNED_LIST_UPDATE to Auctions.
+function Mock.deliverOwned(ns)
+  if Mock.ownerPending then
+    Mock.ownerPending = false
+    ns.Auctions.OnOwnedListUpdate()
     return true
   end
   return false

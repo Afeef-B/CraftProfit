@@ -29,6 +29,7 @@ for name in ([[
   GetAuctionSellItemInfo StartAuction CalculateAuctionDeposit ClickAuctionSellItemButton
   PickupContainerItem GetCursorInfo ClearCursor GetContainerNumSlots GetContainerItemLink
   GetItemCount
+  GetOwnerAuctionItems GetAuctionItemTimeLeft CanCancelAuction CancelAuction ACCEPT CANCEL
   FauxScrollFrame_SetOffset MoneyInputFrame_GetCopper MoneyInputFrame_SetCopper
   MoneyInputFrame_ResetMoney MoneyInputFrame_SetOnValueChangedFunc IsAltKeyDown
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
