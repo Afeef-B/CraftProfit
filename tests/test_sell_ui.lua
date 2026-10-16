@@ -917,4 +917,40 @@ return {
     T.eq(#tbl.rows, 1)
     T.eq(tbl.lines[1].seller:GetText(), "Cara")
   end,
+  -- I1 through the page's own entry points: the slot's drop handler and the
+  -- Alt+click hook.
+  slot_and_alt_click_refused_while_posting = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { auction(CLOTH, CLOTH_NAME, "Bob", 20, gold(20)) }
+    openSell()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 2, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 3, CLOTH, CLOTH_NAME, 20)
+    inBag(0, 4, BAG, BAG_NAME, 1)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    click(CraftProfitSellPost)
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 3)
+    T.eq(CraftProfitSellPost:IsEnabled(), false)
+
+    local bagFrame = CreateFrame("Frame", nil, UIParent)
+    bagFrame:SetID(0)
+    local button = CreateFrame("Button", nil, bagFrame)
+    button:SetID(4)
+    Mock.alt = true
+    ContainerFrameItemButton_OnModifiedClick(button, "LeftButton")
+    T.eq(Mock.sellSlot.id, CLOTH, "Alt+click is refused")
+
+    PickupContainerItem(0, 4)
+    CraftProfitSellSlot:GetScript("OnReceiveDrag")(CraftProfitSellSlot)
+    T.eq(Mock.sellSlot.id, CLOTH, "so is a drop")
+    T.eq(Mock.cursor, nil, "the item went back to the bags")
+    T.eq(ns.SellUI.itemName:GetText(), CLOTH_NAME)
+    T.eq(ns.SellUI.status:GetText(), "Wait until the post finishes.")
+    T.eq(CraftProfitSellPost:IsEnabled(), false, "the lock holds")
+    T.eq(ns.SellUI.reason:GetText(), "Posting...")
+
+    ns.Sell.OnMultisell("AUCTION_MULTISELL_UPDATE", 3, 3)
+    T.eq(ns.SellUI.status:GetText(), "Posted 3 auctions")
+  end,
 }
