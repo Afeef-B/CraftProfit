@@ -23,7 +23,7 @@ for name in ([[
   GetAuctionItemInfo GetAuctionItemLink PlaceAuctionBid GetMoney
   CreateFrame AuctionFrame GameTooltip FauxScrollFrame_Update FauxScrollFrame_GetOffset
   FauxScrollFrame_OnVerticalScroll StaticPopupDialogs StaticPopup_Show
-  EasyMenu UIParent
+  EasyMenu UIParent ChatEdit_GetActiveWindow
   PanelTemplates_SetNumTabs PanelTemplates_TabResize AuctionFrameTab_OnClick
   TradeSkillDetailScrollChildFrame TradeSkillSkillName SlashCmdList IsAddOnLoaded
   GetAuctionSellItemInfo StartAuction CalculateAuctionDeposit ClickAuctionSellItemButton

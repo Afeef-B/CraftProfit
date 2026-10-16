@@ -1,14 +1,16 @@
--- Two extra Auction House tabs ("CP Sell", "CP Auctions") and the empty page
--- frame behind each. SellUI and AuctionsUI build into Tabs.Page(key) when
--- ns.Fire("PAGE_SHOWN", key) says the page was opened.
+-- Three extra Auction House tabs ("CP Sell", "CP Auctions", "CP Buy") and the
+-- empty page frame behind each. SellUI, AuctionsUI and BuyUI build into
+-- Tabs.Page(key) when ns.Fire("PAGE_SHOWN", key) says the page was opened.
 local addonName, ns = ...
 
 ns.Tabs = {}
 local Tabs = ns.Tabs
 
-local KEYS = { "sell", "auctions" }
-local LABEL = { sell = "CP Sell", auctions = "CP Auctions" }
-local PAGE_NAME = { sell = "CraftProfitSellPage", auctions = "CraftProfitAuctionsPage" }
+local KEYS = { "sell", "auctions", "buy" }
+local LABEL = { sell = "CP Sell", auctions = "CP Auctions", buy = "CP Buy" }
+local PAGE_NAME = {
+  sell = "CraftProfitSellPage", auctions = "CraftProfitAuctionsPage", buy = "CraftProfitBuyPage",
+}
 
 local tabs, pages, tabIDs = {}, {}, {}
 local ready = false

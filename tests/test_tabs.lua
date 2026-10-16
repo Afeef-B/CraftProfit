@@ -38,15 +38,16 @@ return {
     T.eq(ns.Tabs.Ensure(), true)
     local sell, auctions = AuctionFrameTab4, AuctionFrameTab5
     T.ok(sell and auctions, "tabs created")
-    T.eq(AuctionFrameTab6, nil)
+    T.eq(AuctionFrameTab6:GetText(), "CP Buy", "CP Buy comes after CP Auctions")
+    T.eq(AuctionFrameTab7, nil)
     T.eq(sell:GetID(), 4)
     T.eq(auctions:GetID(), 5)
     T.eq(sell:GetText(), "CP Sell")
     T.eq(auctions:GetText(), "CP Auctions")
     T.eq(sell._template, "AuctionTabTemplate")
     T.eq(sell._parent, AuctionFrame)
-    T.eq(Mock.numTabs, 5)
-    T.eq(AuctionFrame.numTabs, 5)
+    T.eq(Mock.numTabs, 6)
+    T.eq(AuctionFrame.numTabs, 6)
 
     local a = anchor(sell, "TOPLEFT")
     T.ok(a, "tab 4 anchored")
@@ -94,7 +95,8 @@ return {
     T.eq(AuctionFrameTab8:GetID(), 8)
     T.eq(AuctionFrameTab7:GetText(), "CP Sell")
     T.eq(AuctionFrameTab8:GetText(), "CP Auctions")
-    T.eq(Mock.numTabs, 8)
+    T.eq(AuctionFrameTab9:GetText(), "CP Buy")
+    T.eq(Mock.numTabs, 9)
     T.eq(anchor(AuctionFrameTab7, "TOPLEFT").rel, AuctionFrameTab6)
     T.eq(anchor(AuctionFrameTab7, "TOPLEFT").relPoint, "TOPRIGHT")
     T.eq(anchor(AuctionFrameTab7, "TOPLEFT").x, -8)
@@ -131,8 +133,8 @@ return {
     T.eq(ns.Tabs.Ensure(), true)
     T.eq(AuctionFrameTab4, sell, "same tab object")
     T.eq(CraftProfitSellPage, page, "same page object")
-    T.eq(AuctionFrameTab6, nil, "no extra tabs")
-    T.eq(Mock.numTabs, 5)
+    T.eq(AuctionFrameTab7, nil, "no extra tabs")
+    T.eq(Mock.numTabs, 6)
 
     -- hooked once: a click fires one event, not one per Ensure call
     local shown = recordShown(ns)
@@ -214,5 +216,22 @@ return {
     ns.Tabs.Select("bogus")                  -- unknown key: nothing happens
     T.eq(Mock.lastTab, 4)
     T.eq(#shown, 2)
+  end,
+
+  three_tabs_in_order = function(T)
+    local ns = load()
+    T.eq(ns.Tabs.Ensure(), true)
+    T.eq(AuctionFrameTab4:GetText(), "CP Sell")
+    T.eq(AuctionFrameTab5:GetText(), "CP Auctions")
+    T.eq(AuctionFrameTab6:GetText(), "CP Buy")
+    T.eq(anchor(AuctionFrameTab6, "TOPLEFT").rel, AuctionFrameTab5)
+    T.eq(ns.Tabs.Page("buy"), CraftProfitBuyPage)
+    T.eq(ns.Tabs.Ensure(), true)
+    T.eq(AuctionFrameTab7, nil, "no duplicates on a second Ensure")
+    local shown = recordShown(ns)
+    click(AuctionFrameTab6)
+    T.eq(shown[#shown], "buy")
+    T.eq(ns.Tabs.IsShown("buy"), true)
+    T.eq(ns.Tabs.IsShown("sell"), false)
   end,
 }

@@ -467,6 +467,14 @@ function Mock.installUI()
     Mock.popup, Mock.popupData = which, data
   end
   ACCEPT, CANCEL = "Accept", "Cancel"
+  -- Shift-clicked links: the chat edit box that is open (Mock.chatOpen) takes
+  -- them; tests read what was inserted from Mock.inserted.
+  Mock.chatOpen, Mock.inserted = false, {}
+  ChatEdit_GetActiveWindow = function() return Mock.chatOpen and {} or nil end
+  ChatEdit_InsertLink = function(text)
+    if Mock.chatOpen then Mock.inserted[#Mock.inserted + 1] = text return true end
+    return false
+  end
   -- EasyMenu(menuList, menuFrame, anchor, x, y, displayMode): tests read Mock.menu.
   Mock.menu, Mock.menuAnchor = nil, nil
   EasyMenu = function(menuList, menuFrame, anchor)

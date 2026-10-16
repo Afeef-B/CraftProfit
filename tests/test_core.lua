@@ -464,15 +464,16 @@ return {
     T.ok(AuctionFrameTab4 and AuctionFrameTab5, "tabs after the first show")
     T.eq(AuctionFrameTab4:GetText(), "CP Sell")
     T.eq(AuctionFrameTab5:GetText(), "CP Auctions")
-    T.eq(AuctionFrameTab6, nil)
-    T.eq(Mock.numTabs, 5)
+    T.eq(AuctionFrameTab6:GetText(), "CP Buy")
+    T.eq(AuctionFrameTab7, nil)
+    T.eq(Mock.numTabs, 6)
     local sell, auctions = AuctionFrameTab4, AuctionFrameTab5
 
     Core.OnEvent("AUCTION_HOUSE_SHOW")
     T.eq(AuctionFrameTab4, sell, "same tab objects on the second show")
     T.eq(AuctionFrameTab5, auctions)
-    T.eq(AuctionFrameTab6, nil, "no duplicates")
-    T.eq(Mock.numTabs, 5)
+    T.eq(AuctionFrameTab7, nil, "no duplicates")
+    T.eq(Mock.numTabs, 6)
   end,
 
   tabs_come_after_tabs_other_addons_added_first = function(T)
@@ -482,8 +483,9 @@ return {
     Core.OnEvent("AUCTION_HOUSE_SHOW")
     T.eq(AuctionFrameTab6:GetText(), "CP Sell")
     T.eq(AuctionFrameTab7:GetText(), "CP Auctions")
+    T.eq(AuctionFrameTab8:GetText(), "CP Buy")
     T.eq(AuctionFrameTab4:GetText(), nil, "their tabs are left alone")
-    T.eq(Mock.numTabs, 7)
+    T.eq(Mock.numTabs, 8)
   end,
 
   ah_show_without_the_ah_ui_makes_no_tabs = function(T)

@@ -122,6 +122,11 @@ function Buy.SetNeed(n)
   changed()
 end
 
+-- The need the player set (not counting down), or nil.
+function Buy.Target()
+  return need
+end
+
 -- How many are still needed (0 when done), or nil without a need.
 function Buy.Need()
   if not need then return nil end

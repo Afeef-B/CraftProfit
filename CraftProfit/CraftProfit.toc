@@ -19,6 +19,7 @@ ListingsUI.lua
 Tabs.lua
 Flip.lua
 Buy.lua
+BuyUI.lua
 Sell.lua
 SellUI.lua
 Auctions.lua
