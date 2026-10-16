@@ -88,7 +88,7 @@ end
 
 function Core.OnUpdate(_, elapsed)
   ns.Scanner.Tick(elapsed)
-  ns.Flip.Tick(elapsed)
+  ns.Buyer.Tick(elapsed)
   ns.Recipes.Tick(elapsed)
   sinceButtons = sinceButtons + elapsed
   if sinceButtons >= BUTTON_REFRESH then
@@ -129,13 +129,13 @@ function Core.OnEvent(event, arg1, arg2)
     ns.Tabs.Ensure()
   elseif event == "AUCTION_ITEM_LIST_UPDATE" then
     ns.Scanner.HandleEvent(event)
-    ns.Flip.OnListUpdate()
+    ns.Buyer.OnListUpdate()
   elseif event == "AUCTION_HOUSE_CLOSED" then
     -- Told first: stopping the scan lets the pages that waited for it start
     -- theirs, and none may start now.
     ns.Scanner.SetAHOpen(false)
     ns.Scanner.HandleEvent(event)   -- stops a running scan
-    ns.Flip.Reset()
+    ns.Buyer.Reset()
     ns.Sell.OnAuctionHouseClosed()
   elseif event == "NEW_AUCTION_UPDATE" then
     ns.Sell.OnSlotChanged(nil)      -- no new item: the one shown stays

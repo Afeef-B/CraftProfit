@@ -4,7 +4,7 @@ local BAG, BOLT, CLOTH, THREAD, DUST = 41599, 41510, 33470, 38426, 34054
 
 -- Every addon file, in the order of the toc.
 local ALL = {
-  "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
+  "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
   "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Sell.lua", "SellUI.lua",
   "Auctions.lua", "AuctionsUI.lua", "Core.lua",
 }
@@ -595,7 +595,7 @@ return {
   flip_follows_list_updates_and_scanner_still_does = function(T)
     local ns = load()
     local order = {}
-    local flip = spy(ns.Flip, "OnListUpdate", order)
+    local flip = spy(ns.Buyer, "OnListUpdate", order)
     local scanner = spy(ns.Scanner, "HandleEvent", order)
     fire("AUCTION_ITEM_LIST_UPDATE")
     T.eq(#flip, 1)
@@ -609,7 +609,7 @@ return {
     local ns = load()
     local order = {}
     local scanner = spy(ns.Scanner, "HandleEvent", order)
-    local flip = spy(ns.Flip, "Reset", order)
+    local flip = spy(ns.Buyer, "Reset", order)
     local sell = spy(ns.Sell, "OnAuctionHouseClosed", order)
     fire("AUCTION_HOUSE_CLOSED")
     T.eq(#scanner, 1)
@@ -633,7 +633,7 @@ return {
 
   on_update_ticks_flip = function(T)
     local ns, Core = load()
-    local flip = spy(ns.Flip, "Tick")
+    local flip = spy(ns.Buyer, "Tick")
     local scanner = spy(ns.Scanner, "Tick")
     Core.OnUpdate(nil, 0.25)
     T.eq(#flip, 1)

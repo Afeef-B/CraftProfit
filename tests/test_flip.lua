@@ -28,7 +28,7 @@ local function setup(auctions)
   Mock.reset()
   Mock.installUI()
   local ns = Mock.load({
-    "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
+    "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
     "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua",
   })
   local db = { cut = 0.05 }
@@ -876,22 +876,30 @@ return {
   end,
 
   place_auction_bid_only_in_buy = function(T)
-    local f = assert(io.open(Mock.root .. "Flip.lua", "r"))
-    local src = f:read("*a")
-    f:close()
-    local first = src:find("PlaceAuctionBid", 1, true)
-    T.ok(first, "Flip.lua places the bid")
-    T.eq(src:find("PlaceAuctionBid", first + 1, true), nil, "exactly one call")
-    local buyStart = src:find("\nfunction Flip.Buy(", 1, true)
-    T.ok(buyStart, "Flip.Buy exists")
-    local buyEnd = src:find("\nfunction ", buyStart + 1, true) or #src
-    T.ok(first > buyStart and first < buyEnd, "the bid is inside Flip.Buy")
-    -- Exactly one caller of Buy: the button's OnClick.
+    local function read(file)
+      local f = assert(io.open(Mock.root .. file, "r"))
+      local src = f:read("*a")
+      f:close()
+      return src
+    end
+    -- The bid is placed by Buyer.Buy, the purchase path Flip buys through.
+    local buyer = read("Buyer.lua")
+    local first = buyer:find("PlaceAuctionBid", 1, true)
+    T.ok(first, "Buyer.lua places the bid")
+    T.eq(buyer:find("PlaceAuctionBid", first + 1, true), nil, "exactly one call")
+    local buyStart = buyer:find("\nfunction Buyer.Buy(", 1, true)
+    T.ok(buyStart, "Buyer.Buy exists")
+    local buyEnd = buyer:find("\nfunction ", buyStart + 1, true) or #buyer
+    T.ok(first > buyStart and first < buyEnd, "the bid is inside Buyer.Buy")
+    -- Flip itself never bids, and its Buy has one caller: the button's OnClick.
+    local src = read("Flip.lua")
+    T.eq(src:find("PlaceAuctionBid", 1, true), nil, "Flip.lua never bids itself")
     local calls = 0
     for _ in src:gmatch("Flip%.Buy%(") do calls = calls + 1 end
     T.eq(calls, 2, "the definition and the OnClick call")
     for _, api in ipairs({ "StartAuction", "CancelAuction" }) do
       T.eq(src:find(api, 1, true), nil, api .. " must not appear")
+      T.eq(buyer:find(api, 1, true), nil, api .. " must not appear in Buyer.lua")
     end
   end,
   -- I2: the button spends the whole stack, so it says so in every state that

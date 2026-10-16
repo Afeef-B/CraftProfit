@@ -70,11 +70,11 @@ end
 
 return {
   -- A purchase, a new auction and a cancel each have one call site in the whole
-  -- addon, in Flip.lua / Sell.lua / Auctions.lua. (Each is reached only from a
+  -- addon, in Buyer.lua / Sell.lua / Auctions.lua. (Each is reached only from a
   -- click; the module tests check which function the call sits in.)
   money_calls_have_one_call_site_each = function(T)
     local expected = {
-      PlaceAuctionBid = "Flip.lua", StartAuction = "Sell.lua", CancelAuction = "Auctions.lua",
+      PlaceAuctionBid = "Buyer.lua", StartAuction = "Sell.lua", CancelAuction = "Auctions.lua",
     }
     local files = addonFiles()
     T.ok(#files >= 15, "found the addon files")

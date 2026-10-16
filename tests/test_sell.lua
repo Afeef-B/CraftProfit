@@ -17,7 +17,7 @@ local function setup(opts)
   Mock.reset()
   Mock.installUI()
   local ns = Mock.load({
-    "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
+    "Util.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Buyer.lua",
     "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Sell.lua",
   })
   local db = opts.db or { cut = 0.05 }
