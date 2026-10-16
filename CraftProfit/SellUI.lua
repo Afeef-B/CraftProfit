@@ -6,13 +6,31 @@
 local addonName, ns = ...
 
 local Util = ns.Util
+local Style = ns.Style
 local Sell = ns.Sell
 
 ns.SellUI = {}
 local SellUI = ns.SellUI
 
 local GOOD, BAD, GREY = "|cff40ff40", "|cffff4040", "|cff808080"
-local LEFT, COLUMN = 14, 400  -- the left column: x offset on the page, width
+-- Where each section sits on the page: x, y from the top-left, width, height.
+-- Left column: the item, its price and amounts, what it earns, Post. Right
+-- column: the listings, with room under them for the flip notice.
+local P, LEFT_W, RIGHT_X = Style.PAD, Style.LEFT_W, Style.PAD + Style.LEFT_W + Style.GAP
+local LISTING_ROWS = 10
+local LAYOUT = {
+  item     = { x = P, y = 8,   w = LEFT_W, h = 60 },
+  price    = { x = P, y = 74,  w = LEFT_W, h = 96 },
+  result   = { x = P, y = 176, w = LEFT_W, h = 80 },
+  post     = { x = P, y = 262, w = LEFT_W, h = 36 },
+  listings = { x = RIGHT_X, y = 8, w = Style.RIGHT_W, h = 20 + 18 + LISTING_ROWS * Style.ROW_H },
+  flip     = { x = RIGHT_X, y = 232, w = Style.RIGHT_W, h = 68 },
+}
+SellUI.layout = LAYOUT
+
+local function place(frame, page, r)
+  frame:SetPoint("TOPLEFT", page, "TOPLEFT", r.x, -r.y)
+end
 local DURATIONS = { { 1, "12h" }, { 2, "24h" }, { 3, "48h" } }
 
 -- Why the Post button is off (Sell.State().reason), in the player's words.
@@ -37,11 +55,11 @@ local drawnCount = {}  -- box -> the count Sell had when the page last drew it
 -- Widgets, set by Build: slot, icon, itemName, owned, price, stack, stacks,
 -- radios, deposit, net, cost, profit, post, reason, status, flip, listings.
 
-local function makeText(parent, font, width, height, x, y)
-  local fs = parent:CreateFontString(nil, "OVERLAY", font)
+-- A line of text of one Style kind at (x, y) inside `parent`.
+local function makeText(parent, kind, width, height, x, y)
+  local fs = Style.Text(parent, kind)
   fs:SetWidth(width)
   fs:SetHeight(height)
-  fs:SetJustifyH("LEFT")
   fs:SetJustifyV("TOP")
   fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
   return fs
@@ -76,11 +94,11 @@ local function shownItem()
   if item then return item.id, item.name end
 end
 
-local function createCountBox(page, name, x, field, setter)
-  local box = CreateFrame("EditBox", name, page, "InputBoxTemplate")
+local function createCountBox(panel, name, x, y, field, setter)
+  local box = CreateFrame("EditBox", name, panel, "InputBoxTemplate")
   box:SetWidth(50)
   box:SetHeight(20)
-  box:SetPoint("TOPLEFT", page, "TOPLEFT", x, -108)
+  box:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
   box:SetAutoFocus(false)
   box:SetNumeric(true)
   box:SetMaxLetters(4)
@@ -94,66 +112,73 @@ local function createCountBox(page, name, x, field, setter)
   return box
 end
 
-local function createRadio(page, i, duration, label)
+local function createRadio(panel, i, duration, label)
   local name = "CraftProfitSellDuration" .. i
-  local radio = CreateFrame("CheckButton", name, page, "UIRadioButtonTemplate")
-  radio:SetPoint("TOPLEFT", page, "TOPLEFT", 200 + (i - 1) * 62, -110)
+  local radio = CreateFrame("CheckButton", name, panel, "UIRadioButtonTemplate")
+  radio:SetPoint("TOPLEFT", panel, "TOPLEFT", 90 + (i - 1) * 70, -74)
   _G[name .. "Text"]:SetText(label)
   radio:SetScript("OnClick", function() Sell.SetDuration(duration) end)
   return radio
 end
 
-local function createItemRow(page)
-  local slot = CreateFrame("Button", "CraftProfitSellSlot", page, "ItemButtonTemplate")
-  slot:SetPoint("TOPLEFT", page, "TOPLEFT", LEFT, -10)
+local function panel(page, key, name, title)
+  local r = LAYOUT[key]
+  local frame = Style.Panel(page, name, title, r.w, r.h)
+  place(frame, page, r)
+  return frame
+end
+
+local function createItemPanel(page)
+  local box = panel(page, "item", "CraftProfitSellItemPanel", "Item")
+  local slot = CreateFrame("Button", "CraftProfitSellSlot", box, "ItemButtonTemplate")
+  slot:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -20)
   slot:SetScript("OnClick", onSlotDrop)
   slot:SetScript("OnReceiveDrag", onSlotDrop)
   SellUI.slot = slot
   SellUI.icon = _G["CraftProfitSellSlotIconTexture"]
 
-  SellUI.itemName = makeText(page, "GameFontNormal", 340, 16, LEFT + 44, -12)
-  SellUI.owned = makeText(page, "GameFontHighlightSmall", 340, 14, LEFT + 44, -30)
+  SellUI.itemName = makeText(box, "big", LEFT_W - 64, 18, 56, -20)
+  SellUI.owned = makeText(box, "label", LEFT_W - 64, 14, 56, -40)
 end
 
-local function createInputs(page)
-  makeText(page, "GameFontNormalSmall", 120, 12, LEFT, -54):SetText("Price each")
-  local price = CreateFrame("Frame", "CraftProfitSellPrice", page, "MoneyInputFrameTemplate")
-  price:SetPoint("TOPLEFT", page, "TOPLEFT", LEFT + 6, -70)
+local function createPricePanel(page)
+  local box = panel(page, "price", "CraftProfitSellPricePanel", "Price")
+  makeText(box, "label", 70, 14, 10, -28):SetText("Each")
+  local price = CreateFrame("Frame", "CraftProfitSellPrice", box, "MoneyInputFrameTemplate")
+  price:SetPoint("TOPLEFT", box, "TOPLEFT", 90, -24)
   MoneyInputFrame_SetOnValueChangedFunc(price, onPriceChanged)
   SellUI.price = price
 
-  makeText(page, "GameFontNormalSmall", 70, 12, LEFT, -94):SetText("Stack size")
-  makeText(page, "GameFontNormalSmall", 70, 12, LEFT + 76, -94):SetText("Stacks")
-  makeText(page, "GameFontHighlight", 12, 14, LEFT + 63, -111):SetText("x")
-  SellUI.stack = createCountBox(page, "CraftProfitSellStack", LEFT + 6, "stack", "SetStack")
-  SellUI.stacks = createCountBox(page, "CraftProfitSellStacks", LEFT + 82, "stacks", "SetStacks")
+  makeText(box, "label", 70, 14, 10, -54):SetText("Amount")
+  SellUI.stack = createCountBox(box, "CraftProfitSellStack", 96, -50, "stack", "SetStack")
+  makeText(box, "value", 12, 14, 152, -54):SetText("x")
+  SellUI.stacks = createCountBox(box, "CraftProfitSellStacks", 170, -50, "stacks", "SetStacks")
+  makeText(box, "label", 140, 14, 226, -54):SetText("(stack x auctions)")
 
-  makeText(page, "GameFontNormalSmall", 120, 12, 200, -94):SetText("Duration")
+  makeText(box, "label", 70, 14, 10, -78):SetText("Duration")
   SellUI.radios = {}
   for i, entry in ipairs(DURATIONS) do
-    SellUI.radios[i] = createRadio(page, i, entry[1], entry[2])
+    SellUI.radios[i] = createRadio(box, i, entry[1], entry[2])
   end
 end
 
-local function createOutputs(page)
-  SellUI.deposit = makeText(page, "GameFontHighlightSmall", COLUMN, 14, LEFT, -134)
-  SellUI.net = makeText(page, "GameFontHighlightSmall", COLUMN, 14, LEFT, -148)
-  SellUI.cost = makeText(page, "GameFontHighlightSmall", COLUMN, 14, LEFT, -162)
-  SellUI.profit = makeText(page, "GameFontHighlightSmall", COLUMN, 14, LEFT, -176)
+local function createResultPanel(page)
+  local box = panel(page, "result", "CraftProfitSellResultPanel", "Result")
+  local w = LEFT_W - 20
+  SellUI.deposit = makeText(box, "value", w, 14, 10, -24)
+  SellUI.net = makeText(box, "value", w, 14, 10, -38)
+  SellUI.cost = makeText(box, "value", w, 14, 10, -52)
+  SellUI.profit = makeText(box, "value", w, 14, 10, -66)
+end
 
-  local post = CreateFrame("Button", "CraftProfitSellPost", page, "UIPanelButtonTemplate")
-  post:SetWidth(170)
-  post:SetHeight(22)
-  post:SetPoint("TOPLEFT", page, "TOPLEFT", LEFT, -196)
+local function createPostRow(page)
+  local r = LAYOUT.post
+  local post = Style.Button(page, "CraftProfitSellPost", "Post", 170, true)
+  post:SetPoint("TOPLEFT", page, "TOPLEFT", r.x, -r.y)
   -- The only place an auction is created.
   post:SetScript("OnClick", function() Sell.Post() end)
   SellUI.post = post
-
-  SellUI.reason = makeText(page, "GameFontNormalSmall", COLUMN - 178, 28, LEFT + 178, -197)
-  SellUI.status = makeText(page, "GameFontHighlightSmall", COLUMN, 28, LEFT, -226)
-
-  SellUI.flip = ns.Flip.CreateWidget(page, shownItem)
-  SellUI.flip.frame:SetPoint("TOPLEFT", page, "TOPLEFT", LEFT, -258)
+  SellUI.reason = makeText(page, "label", r.w - 180, 32, r.x + 180, -r.y - 2)
 end
 
 -- Builds the page into Tabs.Page("sell"), once.
@@ -162,14 +187,19 @@ function SellUI.Build()
   if built or not page then return end
   built = true
 
-  createItemRow(page)
-  createInputs(page)
-  createOutputs(page)
+  createItemPanel(page)
+  createPricePanel(page)
+  createResultPanel(page)
+  createPostRow(page)
+  SellUI.status = Style.StatusBar(page)
 
   SellUI.listings = ns.ListingsUI.Create(page, "CraftProfitSellListings", function(row)
     Sell.PickRow(row)
-  end)
-  SellUI.listings.frame:SetPoint("TOPRIGHT", page, "TOPRIGHT", -14, -10)
+  end, { visible = LISTING_ROWS })
+  place(SellUI.listings.frame, page, LAYOUT.listings)
+
+  SellUI.flip = ns.Flip.CreateWidget(page, shownItem)
+  place(SellUI.flip.frame, page, LAYOUT.flip)
 end
 
 -- Writes into the price box and the count boxes echo to their change handlers;
@@ -200,17 +230,17 @@ end
 -- deposit, you get, cost and profit lines ("" when there is nothing to say).
 local function moneyLines(s)
   if not s.item then return "", "", "", "" end
-  local deposit = "Deposit: " .. Util.FormatMoney(s.deposit)
-  local net = s.net and ("You get each: " .. Util.FormatMoney(s.net)) or ""
+  local deposit = "Deposit: " .. Style.Money(s.deposit)
+  local net = s.net and ("You get each: " .. Style.Money(s.net)) or ""
   local cost, profit = "", ""
   if s.costUnknown then
     profit = GREY .. "cost unknown - scan it in Craft Profit|r"
   elseif s.cost then
-    cost = "Cost each: " .. Util.FormatMoney(s.cost)
+    cost = "Cost each: " .. Style.Money(s.cost)
     if s.loss then
-      profit = BAD .. "Profit each: loses " .. Util.FormatMoney(-s.profit) .. " vs crafting cost|r"
+      profit = BAD .. "Profit each: loses " .. Style.Money(-s.profit) .. " vs crafting cost|r"
     elseif s.profit then
-      profit = GOOD .. "Profit each: " .. Util.FormatMoney(s.profit) .. "|r"
+      profit = GOOD .. "Profit each: " .. Style.Money(s.profit) .. "|r"
     end
   end
   return deposit, net, cost, profit

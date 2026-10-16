@@ -114,10 +114,10 @@ end
 
 -- Redraw the visible window of rows.
 function methods.Update(self)
-  local rows = self.rows
-  local maxOffset = math.max(0, #rows - VISIBLE)
+  local rows, visible = self.rows, self.visible
+  local maxOffset = math.max(0, #rows - visible)
   local offset = math.min(FauxScrollFrame_GetOffset(self.scroll) or 0, maxOffset)
-  for i = 1, VISIBLE do
+  for i = 1, visible do
     local line, row = self.lines[i], rows[i + offset]
     if row then
       fillLine(self, line, row)
@@ -126,7 +126,7 @@ function methods.Update(self)
       line:Hide()
     end
   end
-  FauxScrollFrame_Update(self.scroll, #rows, VISIBLE, ROW_HEIGHT)
+  FauxScrollFrame_Update(self.scroll, #rows, visible, ROW_HEIGHT)
   if #rows == 0 then self.emptyText:Show() else self.emptyText:Hide() end
 end
 
@@ -154,15 +154,17 @@ function methods.SetSelected(self, row)
 end
 
 -- Builds the table inside `parent`; the caller positions tbl.frame.
--- onRowClick(row) runs on a left click of a row. opts.mode = "buy" for CP Buy.
+-- onRowClick(row) runs on a left click of a row. opts.mode = "buy" for CP Buy;
+-- opts.visible: how many rows show (default Style.VISIBLE), to leave room below.
 function ListingsUI.Create(parent, name, onRowClick, opts)
+  local visible = opts and opts.visible or VISIBLE
   local tbl = setmetatable({
-    rows = {}, lines = {}, onRowClick = onRowClick, mode = opts and opts.mode,
+    rows = {}, lines = {}, onRowClick = onRowClick, mode = opts and opts.mode, visible = visible,
   }, meta)
 
   local frame = CreateFrame("Frame", name, parent)
   frame:SetWidth(WIDTH)
-  frame:SetHeight(TITLE_HEIGHT + HEADER_HEIGHT + VISIBLE * ROW_HEIGHT)
+  frame:SetHeight(TITLE_HEIGHT + HEADER_HEIGHT + visible * ROW_HEIGHT)
   tbl.frame = frame
 
   tbl.icon = frame:CreateTexture(nil, "ARTWORK")
@@ -187,13 +189,13 @@ function ListingsUI.Create(parent, name, onRowClick, opts)
   local scroll = CreateFrame("ScrollFrame", name .. "Scroll", frame, "FauxScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(TITLE_HEIGHT + HEADER_HEIGHT))
   scroll:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", -SCROLLBAR_WIDTH,
-    -(TITLE_HEIGHT + HEADER_HEIGHT + VISIBLE * ROW_HEIGHT))
+    -(TITLE_HEIGHT + HEADER_HEIGHT + visible * ROW_HEIGHT))
   scroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function() tbl:Update() end)
   end)
   tbl.scroll = scroll
 
-  for i = 1, VISIBLE do tbl.lines[i] = createLine(tbl, i) end
+  for i = 1, visible do tbl.lines[i] = createLine(tbl, i) end
 
   tbl.emptyText = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
   tbl.emptyText:SetPoint("TOP", frame, "TOP", 0, -(TITLE_HEIGHT + HEADER_HEIGHT + 20))

@@ -56,9 +56,13 @@ end
 
 -- The player alt+clicks bag slot (0, 1) holding `count` bags; the price check
 -- finishes unless pump == false.
+-- Puts `count` bags (default 3) in the slot, set to post all of them (one
+-- auction each): the posting tests are about several auctions, not about the
+-- default amount (default_counts_small_posts covers that).
 local function putBag(ns, count, pump)
   inBag(0, 1, BAG, BAG_NAME, count or 3)
   assert(ns.Sell.PutItem(0, 1), "item accepted")
+  ns.Sell.SetStacks(count or 3)
   if pump ~= false then assert(Mock.pump(ns), "price check finished") end
 end
 
@@ -106,7 +110,8 @@ return {
     openSell()
     local page = ns.Tabs.Page("sell")
     T.eq(created, 1)
-    T.eq(CraftProfitSellSlot._parent, page)
+    T.eq(CraftProfitSellSlot._parent, CraftProfitSellItemPanel, "the slot sits in the Item section")
+    T.eq(CraftProfitSellItemPanel._parent, page)
     T.eq(CraftProfitSellPrice._template, "MoneyInputFrameTemplate")
     T.eq(CraftProfitSellPost._template, "UIPanelButtonTemplate")
     T.ok(CraftProfitSellStack and CraftProfitSellStacks, "stack size and number of stacks")
@@ -241,10 +246,10 @@ return {
     local ui = ns.SellUI
 
     typePrice(41999)
-    T.eq(ui.deposit:GetText(), "Deposit: 4s")
-    T.eq(ui.net:GetText(), "You get each: 3g 98s 99c")
-    T.eq(ui.cost:GetText(), "Cost each: 50s")
-    T.eq(ui.profit:GetText(), GOOD .. "Profit each: 3g 48s 99c|r")
+    T.eq(ui.deposit:GetText(), "Deposit: " .. ns.Style.Money(400))
+    T.eq(ui.net:GetText(), "You get each: " .. ns.Style.Money(39899))
+    T.eq(ui.cost:GetText(), "Cost each: " .. ns.Style.Money(5000))
+    T.eq(ui.profit:GetText(), GOOD .. "Profit each: " .. ns.Style.Money(34899) .. "|r")
 
     -- exactly at cost still counts as a profit
     typePrice(math.ceil(5000 / 0.95))
@@ -252,9 +257,9 @@ return {
 
     -- below the crafting cost
     typePrice(4000)
-    T.eq(ui.net:GetText(), "You get each: 38s")
-    T.eq(ui.cost:GetText(), "Cost each: 50s")
-    T.eq(ui.profit:GetText(), BAD .. "Profit each: loses 12s vs crafting cost|r")
+    T.eq(ui.net:GetText(), "You get each: " .. ns.Style.Money(3800))
+    T.eq(ui.cost:GetText(), "Cost each: " .. ns.Style.Money(5000))
+    T.eq(ui.profit:GetText(), BAD .. "Profit each: loses " .. ns.Style.Money(1200) .. " vs crafting cost|r")
 
     -- materials without a price
     local ns2 = setup()
@@ -264,14 +269,14 @@ return {
     typePrice(41999)
     T.eq(ns2.SellUI.cost:GetText(), "")
     T.eq(ns2.SellUI.profit:GetText(), GREY .. "cost unknown - scan it in Craft Profit|r")
-    T.eq(ns2.SellUI.net:GetText(), "You get each: 3g 98s 99c")
+    T.eq(ns2.SellUI.net:GetText(), "You get each: " .. ns.Style.Money(39899))
 
     -- not a recipe: no cost, no profit
     local ns3 = setup()
     openSell()
     putBag(ns3, 2, false)
     typePrice(41999)
-    T.eq(ns3.SellUI.deposit:GetText(), "Deposit: 4s")
+    T.eq(ns3.SellUI.deposit:GetText(), "Deposit: " .. ns.Style.Money(400))
     T.eq(ns3.SellUI.cost:GetText(), "")
     T.eq(ns3.SellUI.profit:GetText(), "")
   end,
@@ -393,8 +398,8 @@ return {
     T.ok(ns.Sell.PutItem(0, 1))
     T.ok(Mock.pump(ns))
     T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), 200, "3s each: the whole silver below")
-    T.eq(CraftProfitSellStack:GetNumber(), 20)
-    T.eq(CraftProfitSellStacks:GetNumber(), 2)
+    T.eq(CraftProfitSellStack:GetNumber(), 2, "one auction of 2")
+    T.eq(CraftProfitSellStacks:GetNumber(), 1)
     T.eq(ns.SellUI.owned:GetText(), "You have 45")
   end,
 
@@ -430,6 +435,8 @@ return {
     inBag(0, 1, CLOTH, CLOTH_NAME, 45)
     T.ok(ns.Sell.PutItem(0, 1))
     T.ok(Mock.pump(ns))
+    ns.Sell.SetStack(20)  -- the player chose 2 stacks of 20
+    ns.Sell.SetStacks(2)
     local calls = countCalls(ns)
 
     -- the player clears the box to type another number
@@ -451,6 +458,8 @@ return {
     inBag(0, 1, CLOTH, CLOTH_NAME, 45)
     T.ok(ns.Sell.PutItem(0, 1))
     T.ok(Mock.pump(ns))
+    ns.Sell.SetStack(20)  -- the player chose 2 stacks of 20
+    ns.Sell.SetStacks(2)
     local calls = countCalls(ns)
     local box = CraftProfitSellStacks
     T.eq(box:GetNumber(), 2)
@@ -523,6 +532,8 @@ return {
     inBag(0, 1, CLOTH, CLOTH_NAME, 45)
     T.ok(ns.Sell.PutItem(0, 1))
     T.ok(Mock.pump(ns))
+    ns.Sell.SetStack(20)  -- the player chose 2 stacks of 20
+    ns.Sell.SetStacks(2)
     local calls = countCalls(ns)
 
     -- the boxes report what they already hold (same number, other spelling)
@@ -543,11 +554,13 @@ return {
     Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
     openSell()
     local calls = countCalls(ns)
-    putBag(ns, 3)
+    inBag(0, 1, BAG, BAG_NAME, 3)
+    assert(ns.Sell.PutItem(0, 1), "item accepted")
+    assert(Mock.pump(ns), "price check finished")
     T.eq(ns.Sell.State().unit, gold(419, 99))
     T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(419, 99), "the page shows the price")
     T.eq(CraftProfitSellStack:GetNumber(), 1)
-    T.eq(CraftProfitSellStacks:GetNumber(), 3)
+    T.eq(CraftProfitSellStacks:GetNumber(), 1)
     T.eq(calls.SetUnit, 0, "drawing the price is not typing it")
     T.eq(calls.SetStack, 0)
     T.eq(calls.SetStacks, 0)
@@ -760,8 +773,8 @@ return {
     -- a scan (or /cp price) gives the cloth a price
     ns.Prices.SetManual(CLOTH, 2000)
     ns.Fire("PRICES_CHANGED")
-    T.eq(ns.SellUI.cost:GetText(), "Cost each: 50s")
-    T.eq(ns.SellUI.profit:GetText(), GOOD .. "Profit each: 3g 48s 99c|r")
+    T.eq(ns.SellUI.cost:GetText(), "Cost each: " .. ns.Style.Money(5000))
+    T.eq(ns.SellUI.profit:GetText(), GOOD .. "Profit each: " .. ns.Style.Money(34899) .. "|r")
 
     -- a price Sell takes over (manual price of the item itself) is drawn once
     local ns2 = setup()
@@ -980,5 +993,39 @@ return {
     putBag(plain, 1)
     T.ok(plain.SellUI.listings.lines[1].note:GetText():find("flip", 1, true))
     T.eq(plain.SellUI.flip.frame:IsShown(), true)
+  end,
+
+  -- Every section sits inside the page, above the status bar, and none
+  -- overlaps another.
+  sell_layout_fits = function(T)
+    local ns = setup()
+    openSell()
+    local S, L = ns.Style, ns.SellUI.layout
+    T.ok(L, "SellUI.layout")
+    local names = {}
+    for name in pairs(L) do names[#names + 1] = name end
+    T.ok(#names >= 6, "item, price, result, post, listings, flip")
+    local bottom = S.PAGE_H - S.PAD - S.STATUS_H
+    for _, name in ipairs(names) do
+      local r = L[name]
+      T.ok(r.x >= S.PAD and r.x + r.w <= S.PAGE_W - S.PAD, name .. " fits the width")
+      T.ok(r.y >= S.PAD and r.y + r.h <= bottom, name .. " ends above the status bar")
+    end
+    for i = 1, #names do
+      for j = i + 1, #names do
+        local a, b = L[names[i]], L[names[j]]
+        local apart = a.x + a.w <= b.x or b.x + b.w <= a.x or a.y + a.h <= b.y or b.y + b.h <= a.y
+        T.ok(apart, names[i] .. " and " .. names[j] .. " do not overlap")
+      end
+    end
+  end,
+
+  sell_page_uses_panels_and_readable_text = function(T)
+    local ns = setup()
+    openSell()
+    T.ok(CraftProfitSellItemPanel and CraftProfitSellItemPanel._backdrop, "item section is a panel")
+    T.ok(CraftProfitSellPricePanel and CraftProfitSellPricePanel._backdrop, "price section is a panel")
+    T.ok(CraftProfitSellResultPanel and CraftProfitSellResultPanel._backdrop, "result section is a panel")
+    T.ok(CraftProfitSellPost:GetWidth() >= 120, "a wide Post button")
   end,
 }

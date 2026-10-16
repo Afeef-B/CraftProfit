@@ -287,4 +287,13 @@ return {
     tbl:SetTitle("")
     T.eq(tbl.icon:IsShown(), false)
   end,
+
+  visible_rows_option = function(T)
+    local ns = load()
+    local tbl = ns.ListingsUI.Create(UIParent, NAME .. "Short", nil, { visible = 10 })
+    T.eq(#tbl.lines, 10)
+    T.eq(tbl.frame:GetHeight(), 20 + 18 + 10 * ns.Style.ROW_H)
+    tbl:SetRows(manyRows(ns, 15))
+    T.eq(tbl.lines[10]:IsShown(), true)
+  end,
 }

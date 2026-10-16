@@ -49,9 +49,13 @@ end
 
 -- The player alt+clicks bag slot (0, 1) with `count` bags there and the
 -- price check finishes.
+-- Puts `count` bags (default 3) in the slot, set to post all of them (one
+-- auction each): the posting tests are about several auctions, not about the
+-- default amount (default_counts_small_posts covers that).
 local function putBag(ns, count, pump)
   inBag(0, 1, BAG, BAG_NAME, count or 3)
   assert(ns.Sell.PutItem(0, 1), "item accepted")
+  ns.Sell.SetStacks(count or 3)
   if pump ~= false then assert(Mock.pump(ns), "price check finished") end
 end
 
@@ -82,6 +86,29 @@ local function events(ns)
 end
 
 return {
+  -- Undercutting posts a little at a time: 1 auction of 2 (1 of 1 for gear),
+  -- so the rest stays in the bags to undercut back with.
+  default_counts_small_posts = function(T)
+    local ns = setup()
+    inBag(0, 1, BAG, BAG_NAME, 5)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().stack, 1, "bags don't stack")
+    T.eq(ns.Sell.State().stacks, 1, "one bag, not all five")
+
+    local ns2 = setup()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 20)
+    inBag(1, 4, CLOTH, CLOTH_NAME, 20)
+    T.ok(ns2.Sell.PutItem(0, 1))
+    T.eq(ns2.Sell.State().stack, 2, "a stack of 2")
+    T.eq(ns2.Sell.State().stacks, 1, "one auction")
+
+    local ns3 = setup()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 1)
+    T.ok(ns3.Sell.PutItem(0, 1))
+    T.eq(ns3.Sell.State().stack, 1, "only one owned")
+    T.eq(ns3.Sell.State().stacks, 1)
+  end,
+
   defaults_for_gear = function(T)
     local ns = setup()
     inBag(0, 1, BAG, BAG_NAME, 3)
@@ -93,7 +120,7 @@ return {
     T.eq(s.item.owned, 3)
     T.ok(s.item.texture, "icon")
     T.eq(s.stack, 1, "gear is posted one per auction")
-    T.eq(s.stacks, 3)
+    T.eq(s.stacks, 1, "one auction at a time")
     T.eq(s.duration, 2)
     T.eq(ns.Sell.lastId, BAG)
     T.eq(Mock.cleared, 0, "nothing came back onto the cursor")
@@ -107,14 +134,14 @@ return {
     local s = ns.Sell.State()
     T.eq(s.item.maxStack, 20)
     T.eq(s.item.owned, 45)
-    T.eq(s.stack, 20)
-    T.eq(s.stacks, 2)
+    T.eq(s.stack, 2, "a small stack")
+    T.eq(s.stacks, 1, "one auction")
 
-    -- fewer than a full stack: one stack of everything
+    -- fewer than a full stack: still one auction of 2
     local ns2 = setup()
     inBag(0, 1, CLOTH, CLOTH_NAME, 7)
     T.ok(ns2.Sell.PutItem(0, 1))
-    T.eq(ns2.Sell.State().stack, 7)
+    T.eq(ns2.Sell.State().stack, 2)
     T.eq(ns2.Sell.State().stacks, 1)
   end,
 
@@ -350,6 +377,8 @@ return {
     T.ok(ns2.Sell.PutItem(0, 1))
     ns2.Sell.SetUnit(250)
     ns2.Sell.SetDuration(3)
+    ns2.Sell.SetStack(20)
+    ns2.Sell.SetStacks(2)
     T.eq(ns2.Sell.State().stack, 20)
     T.eq(ns2.Sell.State().stacks, 2)
     T.eq(ns2.Sell.Post(), true)
@@ -643,6 +672,8 @@ return {
     inBag(0, 1, CLOTH, CLOTH_NAME, 45)
     T.ok(ns.Sell.PutItem(0, 1))
     T.ok(Mock.pump(ns))
+    ns.Sell.SetStack(20)
+    ns.Sell.SetStacks(2)
     T.eq(ns.Sell.State().stack, 20)
     T.eq(ns.Sell.State().stacks, 2)
 
@@ -654,7 +685,7 @@ return {
     local s = ns.Sell.State()
     T.eq(s.item.id, CLOTH)
     T.eq(s.item.owned, 5)
-    T.eq(s.stack, 5)
+    T.eq(s.stack, 2, "ready to post the next small auction")
     T.eq(s.stacks, 1)
     T.eq(s.status, "Posted 2 auctions", "the game's update does not wipe the result")
     T.ok(Mock.pump(ns))
@@ -959,7 +990,7 @@ return {
     local s = ns.Sell.State()
     T.eq(s.item.owned, 3)
     T.eq(s.stack, 1)
-    T.eq(s.stacks, 3)
+    T.eq(s.stacks, 1)
     ns.Sell.SetUnit(gold(10))
     T.eq(ns.Sell.State().canPost, true)
     ns.Sell.SetStacks(4)
@@ -973,6 +1004,8 @@ return {
     inBag(0, 1, CLOTH, CLOTH_NAME, 45)
     T.ok(ns2.Sell.PutItem(0, 1))
     T.eq(ns2.Sell.State().item.owned, 40)
+    ns2.Sell.SetStack(20)
+    ns2.Sell.SetStacks(2)
     T.eq(ns2.Sell.State().stack, 20)
     T.eq(ns2.Sell.State().stacks, 2)
     ns2.Sell.SetUnit(500)
@@ -1384,6 +1417,8 @@ return {
     inBag(0, 4, BAG, BAG_NAME, 1)
     T.ok(ns.Sell.PutItem(0, 1))
     T.ok(Mock.pump(ns))
+    ns.Sell.SetStack(20)
+    ns.Sell.SetStacks(3)
     T.eq(ns.Sell.State().stacks, 3)
     T.eq(ns.Sell.Post(), true)
     ns.Sell.OnMultisell("AUCTION_MULTISELL_START", 3)

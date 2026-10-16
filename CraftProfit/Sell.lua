@@ -199,11 +199,12 @@ local function resetItem()
 end
 
 -- Stack size and number of auctions that sell everything we own.
+-- Undercutting posts a little at a time: one auction of 2 (of 1 for what
+-- doesn't stack), so the rest stays in the bags to undercut back with.
+local SMALL_STACK = 2
 local function defaultCounts(maxStack, owned)
   if owned < 1 then return 1, 1 end
-  if maxStack <= 1 then return 1, owned end
-  local size = min(maxStack, owned)
-  return size, floor(owned / size)
+  return max(1, min(SMALL_STACK, maxStack, owned)), 1
 end
 
 local function wholeCount(n)
