@@ -978,4 +978,36 @@ return {
     idle.Flip.Buy(BAG, BAG_NAME)
     T.eq(#Mock.queries, 0, "nothing sent by the buy itself")
   end,
+  -- I5: a "mistake" among random-suffix variants is another variant, not a flip.
+  info_nil_for_random_suffix_variants = function(T)
+    local function variant(seller, buyout, suffix)
+      local a = auction(seller, 1, buyout)
+      a.suffix = suffix
+      return a
+    end
+    local ns = setup({
+      variant("Bob", gold(50), -9),            -- of the Monkey
+      variant("Kim", gold(52), -9),
+      variant("Al", gold(300), -40),           -- of the Bear
+    })
+    local rows = ns.Listings.Get(BAG)
+    T.eq(#rows, 3)
+    T.eq(rows[1].outlier, true, "the rows do look like a mistake by price alone")
+    T.eq(ns.Flip.Info(BAG), nil, "but no flip is offered")
+    T.eq(ns.Flip.State(BAG), "idle")
+    local w = newWidget(ns)
+    w:Update()
+    T.eq(w.frame:IsShown(), false)
+    local ok, msg = ns.Flip.Buy(BAG, BAG_NAME)
+    T.eq(ok, false)
+    T.eq(msg, "No mistake listing to buy.")
+    T.eq(#Mock.bought, 0)
+
+    -- one variant on its own is not the plain item either
+    local one = setup({ variant("Flipper", gold(50), -9), auction("Bob", 1, gold(420)), auction("Carl", 1, gold(430)) })
+    T.eq(one.Flip.Info(BAG), nil)
+
+    -- plain rows are unchanged
+    T.ok(setup().Flip.Info(BAG), "the standard flip is still found")
+  end,
 }

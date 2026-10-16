@@ -30,7 +30,7 @@ local TRANSIENT = {
 }
 
 local db
-local item                  -- { id, name, texture, maxStack, owned } or nil
+local item                  -- { id, name, texture, maxStack, owned, suffix } or nil
 local unit                  -- price each in copper; nil = none yet
 local stack, stacks = 1, 1  -- items per auction, number of auctions
 local duration = DEFAULT_DURATION
@@ -71,11 +71,21 @@ local function standbyPrice(id)
   return ns.Prices.Auctionator(id)
 end
 
+-- A random-enchant item ("of the Monkey"): one item id, many prices. The item in
+-- the slot says so through its link, the price check's rows through their
+-- suffixes (Listings.MixedSuffix).
+local function isVariant(rows)
+  if item and (item.suffix or 0) ~= 0 then return true end
+  return rows ~= nil and ns.Listings.MixedSuffix(rows)
+end
+
 -- Price each when nobody else sets it. From a price check's rows: under the
 -- cheapest other seller, equal to our own, else the standby price (nil when
 -- there is none). Before the check has answered: the last known price, which
--- the page may show but Post does not accept (see State).
+-- the page may show but Post does not accept (see State). A random-enchant item
+-- has no default: what the other variants cost says nothing about this one.
 local function defaultPrice(id, rows)
+  if isVariant(rows) then return nil end
   if not rows then return (ns.Prices.ResolveSell(id)) end
   local price = ns.Listings.UndercutPrice(rows, standbyPrice(id))
   return price
@@ -218,10 +228,11 @@ function Sell.SetDB(savedDB)
   duration = db.sell.duration
 end
 
--- The game's sell slot changed. `id` is the item we just put there ourselves;
--- nil when NEW_AUCTION_UPDATE says so (the slot was emptied after posting, or
--- its count changed), then the item is the one already shown.
-function Sell.OnSlotChanged(id)
+-- The game's sell slot changed. `id` is the item we just put there ourselves,
+-- `suffix` its random-suffix id from the link we had; both nil when
+-- NEW_AUCTION_UPDATE says so (the slot was emptied after posting, or its count
+-- changed), then the item is the one already shown.
+function Sell.OnSlotChanged(id, suffix)
   local slotName, slotTexture, _, _, _, _, _, _, slotTotal = GetAuctionSellItemInfo()
   local fromEvent = id == nil
 
@@ -267,9 +278,11 @@ function Sell.OnSlotChanged(id)
 
   local maxStack = select(8, GetItemInfo(id))
   if not sameItem then listings, checked, checkFailed = nil, false, false end
+  -- No link to read (the game's own update): the item shown keeps its suffix.
+  suffix = suffix or (sameItem and item.suffix) or 0
   item = {
     id = id, name = slotName, texture = slotTexture or select(10, GetItemInfo(id)),
-    maxStack = maxStack or 1, owned = owned,
+    maxStack = maxStack or 1, owned = owned, suffix = suffix,
   }
   stack, stacks = defaultCounts(item.maxStack, owned)
   priceEdited = false
@@ -297,8 +310,9 @@ local function refuseWhilePosting()
   return false, "posting"
 end
 
--- The cursor holds an item we just clicked into the sell slot (or tried to).
-local function place(id)
+-- The cursor holds an item we just clicked into the sell slot (or tried to);
+-- `link` is its item link.
+local function place(id, link)
   local oldName = GetAuctionSellItemInfo()
   local knownId = item and item.id
   ClickAuctionSellItemButton()
@@ -317,29 +331,29 @@ local function place(id)
     changed()
     return false
   end
-  Sell.OnSlotChanged(id)
+  Sell.OnSlotChanged(id, ns.Util.SuffixFromLink(link))
   return item ~= nil and item.id == id
 end
 
 -- Drag-and-drop onto our slot: whatever the cursor carries goes in.
 -- ok, or false and "posting".
 function Sell.DropCursorItem()
-  local kind, id = GetCursorInfo()
+  local kind, id, link = GetCursorInfo()
   if kind ~= "item" or not id then return false end
   if posting then return refuseWhilePosting() end
-  return place(id)
+  return place(id, link)
 end
 
 -- Alt+click on a bag item. ok, or false and "posting".
 function Sell.PutItem(bag, slot)
   if posting then return refuseWhilePosting() end
   PickupContainerItem(bag, slot)
-  local kind, id = GetCursorInfo()
+  local kind, id, link = GetCursorInfo()
   if kind ~= "item" or not id then
     if kind then ClearCursor() end
     return false
   end
-  return place(id)
+  return place(id, link)
 end
 
 -- ok, or false and "not-in-bags" / "put-failed" / "posting".
@@ -397,7 +411,8 @@ end
 -- listing is something to buy, not a price: ok, or false and "outlier".
 function Sell.PickRow(row)
   if not row or (row.unit or 0) <= 0 then return end
-  if row.outlier then
+  -- (Among random-enchant variants a cheap row is just another variant.)
+  if row.outlier and not isVariant(listings) then
     status = MISTAKE_ROW
     changed()
     return false, "outlier"
@@ -421,6 +436,8 @@ end
 --   "checking"     the price check has not answered yet
 --   "no-check"     it ended without an answer; type a price to post anyway
 --   "no-price"     no price
+--   "variant"      a random-enchant item has no default price; type or pick one
+--   "too-big"      a stack above the item's maximum stack
 --   "too-many"     more than the client lets us post
 --   "no-gold"      cannot pay the deposit
 -- A typed or picked price, or one the player set in Craft Profit, needs no
@@ -442,6 +459,7 @@ function Sell.State()
   end
 
   current.owned = ownedCount(current.id, slotTotal)
+  s.variant = isVariant(listings)
   s.flip = ns.Flip.Info(current.id)
   s.deposit = CalculateAuctionDeposit(duration, stack * stacks)
 
@@ -473,7 +491,9 @@ function Sell.State()
   elseif awaitingCheck then
     s.reason = checkFailed and "no-check" or "checking"
   elseif not unit or unit < 1 then
-    s.reason = "no-price"
+    s.reason = (s.variant and not priceEdited) and "variant" or "no-price"
+  elseif stack > current.maxStack then
+    s.reason = "too-big"
   elseif stack * stacks > current.owned then
     s.reason = "too-many"
   elseif GetMoney() < s.deposit then

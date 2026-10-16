@@ -52,8 +52,9 @@ local function cheapestMineAbove(rows, unit)
   return best
 end
 
--- raw rows { count, buyout, seller, page, index } -> sorted rows with
--- unit, mine and outlier added. The raw rows are left alone.
+-- raw rows { count, buyout, seller, page, index, suffix } -> sorted rows with
+-- unit, mine and outlier added (suffix is kept as it came). The raw rows are
+-- left alone.
 function Listings.Normalize(raw, mineSet, ratio)
   mineSet = mineSet or {}
   ratio = ratio or DEFAULT_RATIO
@@ -68,7 +69,7 @@ function Listings.Normalize(raw, mineSet, ratio)
     end
     local row = {
       count = count, buyout = buyout, seller = r.seller,
-      page = r.page, index = r.index,
+      page = r.page, index = r.index, suffix = r.suffix,
       unit = unit,
       mine = r.seller ~= nil and mineSet[r.seller] ~= nil,
       outlier = false,
@@ -108,6 +109,18 @@ function Listings.Normalize(raw, mineSet, ratio)
   end
 
   return rows
+end
+
+-- True when the rows are not one plain item: some carry a random-suffix id
+-- ("of the Monkey"), alone or next to others (more than one distinct suffix
+-- always includes a nonzero one). Variants share an item id and not a price, so
+-- rows like these say nothing about what one of them is worth. A row whose
+-- suffix is unknown counts as plain.
+function Listings.MixedSuffix(rows)
+  for i = 1, #rows do
+    if (rows[i].suffix or 0) ~= 0 then return true end
+  end
+  return false
 end
 
 -- Cheapest priced rows by who owns them. Outliers are flips, not competition.

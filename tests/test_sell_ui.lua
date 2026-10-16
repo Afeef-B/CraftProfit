@@ -817,4 +817,59 @@ return {
     T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), gold(419, 99))
     T.eq(ns.SellUI.listings.title:GetText(), BAG_NAME .. ": all listings")
   end,
+  -- I5
+  variant_reason_text = function(T)
+    local ns = setup()
+    local function variant(seller, buyout, suffix)
+      local a = bagAuction(seller, buyout)
+      a.suffix = suffix
+      return a
+    end
+    Mock.ah.auctions = {
+      variant("Bob", gold(50), -9), variant("Kim", gold(52), -9), variant("Al", gold(300), -40),
+    }
+    openSell()
+    putBag(ns, 1)
+    T.eq(CraftProfitSellPost:IsEnabled(), false)
+    T.eq(ns.SellUI.reason:GetText(), "Random-enchant item - type a price.")
+    T.eq(MoneyInputFrame_GetCopper(CraftProfitSellPrice), 0, "the price field is empty")
+    T.eq(ns.SellUI.flip.frame:IsShown(), false, "no flip offer among variants")
+    typePrice(gold(40))
+    T.eq(CraftProfitSellPost:IsEnabled(), true)
+    T.eq(ns.SellUI.reason:GetText(), "")
+    click(CraftProfitSellPost)
+    T.eq(#Mock.started, 1)
+    T.eq(Mock.started[1][1], gold(40))
+  end,
+
+  -- T7
+  stack_above_max_stack_reason_text = function(T)
+    local ns = setup()
+    openSell()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 45)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    typePrice(gold(1))
+    T.eq(CraftProfitSellPost:IsEnabled(), true)
+    ns.Sell.SetStack(25)
+    T.eq(CraftProfitSellPost:IsEnabled(), false)
+    T.eq(ns.SellUI.reason:GetText(), "Stack size is more than 20.")
+    ns.Sell.SetStack(20)
+    T.eq(CraftProfitSellPost:IsEnabled(), true)
+    T.eq(ns.SellUI.reason:GetText(), "")
+  end,
+
+  -- M4: CP Auctions is not loaded here; the marks are CP Sell's own.
+  listings_show_the_under_you_marks = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(410)), bagAuction("Me", gold(430)) }
+    openSell()
+    putBag(ns, 1)
+    local tbl = ns.SellUI.listings
+    T.eq(tbl.lines[1].row.seller, "Bob")
+    T.eq(tbl.lines[1].row.underYou, true)
+    T.ok(tbl.lines[1].note:GetText():find("under you", 1, true), tbl.lines[1].note:GetText())
+    T.eq(tbl.lines[2].row.underYou, nil, "our own row is not under us")
+    T.eq(tbl.lines[2].note:GetText(), "")
+  end,
 }

@@ -38,13 +38,12 @@ local function unitOf(a)
   return max(1, floor(a.buyout / max(a.count, 1) + 0.5))
 end
 
--- True for a random-suffix variant ("of the Bear"): the item string
--- item:id:enchant:gem1:gem2:gem3:gem4:suffix:... has a suffix other than 0.
--- Such variants share one item id but not a price, so the cached rows of that
--- id say nothing about them.
+-- True for a random-suffix variant ("of the Bear"): the item link has a suffix
+-- other than 0 (Util.SuffixFromLink). Such variants share one item id but not a
+-- price, so the cached rows of that id say nothing about them.
 local function isVariant(link)
-  local suffix = link and link:match("item:%d+:%-?%d+:%-?%d+:%-?%d+:%-?%d+:%-?%d+:(%-?%d+)")
-  return suffix ~= nil and tonumber(suffix) ~= 0
+  local suffix = ns.Util.SuffixFromLink(link)
+  return suffix ~= nil and suffix ~= 0
 end
 
 -- The auction at `index` of the loaded owner batch, or nil while the client

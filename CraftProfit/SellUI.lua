@@ -23,6 +23,7 @@ local REASONS = {
   checking = "Checking prices...",
   ["no-check"] = "No answer from the AH - type a price.",
   ["no-price"] = "Type a price.",
+  variant = "Random-enchant item - type a price.",
   ["no-gold"] = "Not enough gold for the deposit.",
 }
 
@@ -217,6 +218,7 @@ end
 local function reasonText(s)
   if s.canPost then return "" end
   if s.reason == "too-many" then return "You only have " .. s.item.owned .. "." end
+  if s.reason == "too-big" then return "Stack size is more than " .. s.item.maxStack .. "." end
   return REASONS[s.reason] or ""
 end
 
@@ -245,7 +247,8 @@ local function drawItem(s)
     SellUI.owned:SetText("")
     SellUI.listings:SetTitle("")
   end
-  SellUI.listings:SetRows(item and s.listings)
+  -- The marks follow the rows we show, whichever page drew them last.
+  SellUI.listings:SetRows(item and s.listings and ns.Listings.MarkUnderYou(s.listings))
 end
 
 -- Redraws everything from Sell.State().

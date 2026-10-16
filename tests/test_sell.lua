@@ -391,7 +391,7 @@ return {
     T.eq(ns.Sell.Post(), false)
     ns.Sell.SetStack(2)
     ns.Sell.SetStacks(2)
-    T.eq(ns.Sell.State().reason, "too-many", "2 x 2 > 3")
+    T.eq(ns.Sell.State().reason, "too-big", "2 x 2 > 3, but a bag holds one: the stack size is named")
     ns.Sell.SetStack(1)
     ns.Sell.SetStacks(3)
 
@@ -1480,5 +1480,142 @@ return {
     s = ns.Sell.State()
     T.eq(s.unit, gold(399, 99))
     T.eq(s.status, "")
+  end,
+  -- I5: "of the Monkey" at 50g and 52g next to "of the Bear" at 300g. They share
+  -- one item id and not a price: nothing here may be priced from the others.
+  variant_rows_give_no_default_price = function(T)
+    local ns = setup()
+    local function variant(seller, buyout, suffix)
+      local a = bagAuction(seller, buyout)
+      a.suffix = suffix
+      return a
+    end
+    Mock.ah.auctions = {
+      variant("Bob", gold(50), -9), variant("Kim", gold(52), -9), variant("Al", gold(300), -40),
+    }
+    putBag(ns, 1)
+    local s = ns.Sell.State()
+    T.eq(#s.listings, 3)
+    T.eq(s.unit, nil, "no default price")
+    T.eq(s.canPost, false)
+    T.eq(s.reason, "variant")
+    T.eq(s.flip, nil, "no flip offer")
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    -- a price the player types posts
+    ns.Sell.SetUnit(gold(40))
+    s = ns.Sell.State()
+    T.eq(s.canPost, true)
+    T.eq(s.reason, nil)
+    T.eq(ns.Sell.Post(), true)
+    T.eq(#Mock.started, 1)
+    T.eq(Mock.started[1][1], gold(40))
+
+    -- a later answer does not replace it
+    ns.Listings.Store(BAG, s.listings)
+    T.eq(ns.Sell.State().unit, gold(40))
+
+    -- a row the player clicks sets the price, mistake-looking or not
+    local ns2 = setup()
+    Mock.ah.auctions = {
+      variant("Bob", gold(50), -9), variant("Kim", gold(52), -9), variant("Al", gold(300), -40),
+    }
+    putBag(ns2, 1)
+    local rows = ns2.Sell.State().listings
+    T.eq(rows[1].outlier, true, "marked a mistake by price alone")
+    T.eq(ns2.Sell.PickRow(rows[1]), true, "it is no mistake among variants: the player may pick it")
+    T.eq(ns2.Sell.State().unit, gold(49, 99))
+    T.eq(ns2.Sell.State().canPost, true)
+    ns2.Sell.PickRow(rows[3])
+    T.eq(ns2.Sell.State().unit, gold(299, 99))
+
+    -- the player's own price does not fill a variant either
+    local ns3 = setup()
+    Mock.ah.auctions = { variant("Bob", gold(50), -9), variant("Al", gold(300), -40) }
+    putBag(ns3, 1)
+    ns3.Prices.SetManual(BAG, gold(500))
+    ns3.Fire("PRICES_CHANGED")
+    T.eq(ns3.Sell.State().unit, nil)
+    T.eq(ns3.Sell.State().reason, "variant")
+  end,
+
+  -- The variant the player puts in the slot tells itself through its link, even
+  -- when the rows on the AH look plain (nobody sells that variant) or are missing.
+  variant_in_the_slot_gives_no_default_price = function(T)
+    local ns = setup()
+    Mock.ah.auctions = { bagAuction("Bob", gold(420)) }
+    inBag(0, 1, BAG, BAG_NAME, 1)
+    Mock.bags[0][1].suffix = -9
+    ns.Prices.SetManual(BAG, gold(500))
+    T.ok(ns.Sell.PutItem(0, 1))
+    local s = ns.Sell.State()
+    T.eq(s.unit, nil, "not even the last known price while searching")
+    T.eq(s.reason, "checking")
+    T.ok(Mock.pump(ns))
+    s = ns.Sell.State()
+    T.eq(s.unit, nil)
+    T.eq(s.reason, "variant")
+    T.eq(s.canPost, false)
+    ns.Sell.SetUnit(gold(400))
+    T.eq(ns.Sell.State().canPost, true)
+
+    -- the slot's count changing keeps what we know about the item
+    Mock.sellSlot.count = 1
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(ns.Sell.State().unit, nil, "a new price check starts over: nothing typed any more")
+    T.ok(Mock.pump(ns))
+    T.eq(ns.Sell.State().reason, "variant")
+
+    -- a plain item next: prices as usual
+    inBag(0, 2, OTHER, OTHER_NAME, 1)
+    Mock.ah.auctions = { auction(OTHER, OTHER_NAME, "Cara", 1, gold(100)) }
+    T.ok(ns.Sell.PutItem(0, 2))
+    T.ok(Mock.pump(ns))
+    T.eq(ns.Sell.State().unit, gold(99, 99))
+    T.eq(ns.Sell.State().reason, nil)
+
+    -- and back: the other variant of the same id replaces the first
+    Mock.bags[0][1].suffix = -40
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().unit, nil)
+    T.eq(Mock.sellSlot.suffix, -40)
+  end,
+
+  -- T7: Blizzard's own Create button stays off for a stack above the item's
+  -- maximum (Blizzard_AuctionUI.lua:1543).
+  stack_above_max_stack_is_refused = function(T)
+    local ns = setup()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 45)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    ns.Sell.SetUnit(gold(1))
+    T.eq(ns.Sell.State().canPost, true)
+
+    ns.Sell.SetStack(21)
+    ns.Sell.SetStacks(1)
+    local s = ns.Sell.State()
+    T.eq(s.reason, "too-big")
+    T.eq(s.canPost, false)
+    T.eq(ns.Sell.Post(), false)
+    T.eq(#Mock.started, 0)
+
+    ns.Sell.SetStack(20)
+    T.eq(ns.Sell.State().canPost, true, "exactly the maximum is fine")
+
+    -- both wrong: the stack size is named first
+    ns.Sell.SetStack(50)
+    ns.Sell.SetStacks(2)
+    T.eq(ns.Sell.State().reason, "too-big")
+
+    -- gear holds one
+    local ns2 = setup()
+    putBag(ns2, 3)
+    ns2.Sell.SetUnit(gold(1))
+    ns2.Sell.SetStack(2)
+    ns2.Sell.SetStacks(1)
+    T.eq(ns2.Sell.State().reason, "too-big")
+    ns2.Sell.SetStack(1)
+    T.eq(ns2.Sell.State().canPost, true)
   end,
 }

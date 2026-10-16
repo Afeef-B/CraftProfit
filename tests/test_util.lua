@@ -97,4 +97,18 @@ return {
     Mock.now = 42
     T.eq(ns.Now(), 42)
   end,
+  -- item:id:enchant:gem1:gem2:gem3:gem4:suffix:unique:level
+  suffix_from_link = function(T)
+    local U = load().Util
+    T.eq(U.SuffixFromLink("|cffffffff|Hitem:33470:0:0:0:0:0:0:0:80|h[Frostweave Cloth]|h|r"), 0)
+    T.eq(U.SuffixFromLink("|cff1eff00|Hitem:10001:0:0:0:0:0:-9:123456:80|h[Belt of the Monkey]|h|r"), -9)
+    T.eq(U.SuffixFromLink("|cff1eff00|Hitem:10001:3225:0:0:0:0:1221:98765:80|h[Belt of the Bear]|h|r"), 1221,
+      "an enchant on the item does not move the field")
+    T.eq(U.SuffixFromLink("|cff1eff00|Hitem:10001:-5:0:0:0:0:7|h[Belt]|h|r"), 7, "no trailing fields")
+    T.eq(U.SuffixFromLink("|cffffd000|Henchant:7418|h[Enchant Ring]|h|r"), nil)
+    T.eq(U.SuffixFromLink("|Hitem:33470|h[Short]|h"), nil, "too short to carry a suffix")
+    T.eq(U.SuffixFromLink("garbage"), nil)
+    T.eq(U.SuffixFromLink(nil), nil)
+    T.eq(U.SuffixFromLink(42), nil)
+  end,
 }

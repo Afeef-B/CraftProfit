@@ -740,4 +740,21 @@ return {
     T.eq(S.IsBusy(), false)
     T.eq(select(3, P.GetAH(CLOTH)), 60)
   end,
+  -- I5: collect mode records each row's random-suffix id, parsed from its link.
+  collect_records_the_suffix = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = {
+      { id = CLOTH, name = "Frostweave Cloth", count = 1, buyout = 500, seller = "Bob", suffix = -9 },
+      { id = CLOTH, name = "Frostweave Cloth", count = 1, buyout = 600, seller = "Kim" },
+      { id = CLOTH, name = "Frostweave Cloth", count = 1, buyout = 700, seller = "Al", suffix = 1221 },
+    }
+    T.eq(S.StartTargeted({ CLOTH_ITEM }, { collect = true }), true)
+    T.ok(Mock.pump(ns), "scan finished")
+    local bySeller = {}
+    for _, row in ipairs(ns.Listings.Get(CLOTH)) do bySeller[row.seller] = row end
+    T.eq(bySeller.Bob.suffix, -9)
+    T.eq(bySeller.Kim.suffix, 0, "a plain link carries suffix 0")
+    T.eq(bySeller.Al.suffix, 1221)
+    T.eq(ns.Listings.MixedSuffix(ns.Listings.Get(CLOTH)), true)
+  end,
 }

@@ -183,11 +183,15 @@ local function readPage(force)
   lastPrint, lastKey = fingerprint, job.queryKey
   local target = job.items[job.index].id
   for i = 1, batch do
-    if ns.Util.ItemIDFromLink(GetAuctionItemLink("list", i)) == target then
+    local link = GetAuctionItemLink("list", i)
+    if ns.Util.ItemIDFromLink(link) == target then
       local _, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
       if job.collect then
+        -- The suffix tells the variants of a random-enchant item apart: they
+        -- share the id and not the price.
         job.raw[#job.raw + 1] = {
           count = count, buyout = buyout, seller = owner, page = job.page, index = i,
+          suffix = ns.Util.SuffixFromLink(link),
         }
       end
       if buyout and buyout > 0 and count and count > 0 then

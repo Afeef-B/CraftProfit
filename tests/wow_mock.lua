@@ -200,8 +200,9 @@ function Mock.reset()
   end
 
   -- Bags 0-4, the cursor and the Auction House sell slot.
-  -- Mock.bags[bag][slot] = { id, name, count }. Picking an item up puts a copy
-  -- { id, name, count, bag, slot } on Mock.cursor; the item itself stays in its
+  -- Mock.bags[bag][slot] = { id, name, count, suffix? } (suffix = the random-suffix
+  -- id in the item link, e.g. -9 for "of the Monkey"). Picking an item up puts a copy
+  -- { id, name, count, suffix, bag, slot } on Mock.cursor; the item itself stays in its
   -- bag (the client only locks it). ClickAuctionSellItemButton swaps the cursor
   -- with Mock.sellSlot; Mock.auctionable[id] == false refuses the item, which
   -- then stays on the cursor. ClearCursor counts its calls in Mock.cleared.
@@ -225,7 +226,7 @@ function Mock.reset()
   GetContainerItemLink = function(bag, slot)
     local item = Mock.bags[bag] and Mock.bags[bag][slot]
     if not item then return nil end
-    return Mock.Link(item.id, item.name)
+    return Mock.Link(item.id, item.name, item.suffix)
   end
   GetItemCount = function(id)
     local total = 0
@@ -240,12 +241,15 @@ function Mock.reset()
     local item = Mock.bags[bag] and Mock.bags[bag][slot]
     local locked = Mock.sellSlot and Mock.sellSlot.bag == bag and Mock.sellSlot.slot == slot
     if item and not Mock.cursor and not locked then
-      Mock.cursor = { id = item.id, name = item.name, count = item.count or 1, bag = bag, slot = slot }
+      Mock.cursor = {
+        id = item.id, name = item.name, count = item.count or 1, suffix = item.suffix,
+        bag = bag, slot = slot,
+      }
     end
   end
   GetCursorInfo = function()
     if not Mock.cursor then return nil end
-    return "item", Mock.cursor.id, Mock.Link(Mock.cursor.id, Mock.cursor.name)
+    return "item", Mock.cursor.id, Mock.Link(Mock.cursor.id, Mock.cursor.name, Mock.cursor.suffix)
   end
   ClearCursor = function()
     Mock.cleared = Mock.cleared + 1

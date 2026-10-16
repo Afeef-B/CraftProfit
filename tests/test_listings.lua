@@ -474,4 +474,35 @@ return {
     T.eq(#fired, 2)
     T.eq(L.Get(1), nil)
   end,
+  -- I5: random-suffix items share one id but not a price.
+  normalize_keeps_the_suffix = function(T)
+    local _, L = load()
+    local rows = L.Normalize({
+      { count = 1, buyout = 500000, seller = "Bob", page = 0, index = 1, suffix = -9 },
+      { count = 1, buyout = 520000, seller = "Kim", page = 0, index = 2, suffix = 0 },
+      { count = 1, buyout = 530000, seller = "Al", page = 0, index = 3 },
+    }, {}, 0.5)
+    T.eq(rows[1].suffix, -9)
+    T.eq(rows[2].suffix, 0)
+    T.eq(rows[3].suffix, nil, "unknown stays unknown")
+  end,
+
+  mixed_suffix = function(T)
+    local _, L = load()
+    local function rowsWith(...)
+      local raw = {}
+      for i, suffix in ipairs({ ... }) do
+        raw[i] = { count = 1, buyout = 10000 * i, seller = "S" .. i, suffix = suffix }
+      end
+      return L.Normalize(raw, {}, 0.5)
+    end
+    T.eq(L.MixedSuffix({}), false, "no rows")
+    T.eq(L.MixedSuffix(rowsWith(0, 0, 0)), false, "all plain")
+    T.eq(L.MixedSuffix(rowsWith(nil, nil)), false, "suffix unknown counts as plain")
+    T.eq(L.MixedSuffix(rowsWith(0, nil)), false)
+    T.eq(L.MixedSuffix(rowsWith(-9, -40)), true, "two variants")
+    T.eq(L.MixedSuffix(rowsWith(-9, -9)), true, "one variant is still not the plain item")
+    T.eq(L.MixedSuffix(rowsWith(0, 0, 1221)), true, "one variant among plain rows")
+    T.eq(L.MixedSuffix(rowsWith(0, -9)), true)
+  end,
 }

@@ -101,6 +101,15 @@ function Util.ItemIDFromLink(link)
   return id and tonumber(id) or nil
 end
 
+-- The random-suffix id of an item link ("of the Monkey" is negative; 0 and
+-- nothing else for a plain item), or nil when the link has no such field. The
+-- item string is item:id:enchant:gem1:gem2:gem3:gem4:suffix:unique:level.
+function Util.SuffixFromLink(link)
+  if type(link) ~= "string" then return nil end
+  local suffix = link:match("item:%d+:%-?%d+:%-?%d+:%-?%d+:%-?%d+:%-?%d+:(%-?%d+)")
+  return suffix and tonumber(suffix) or nil
+end
+
 -- "|Hitem:...|h[Frostweave Bag]|h" -> "Frostweave Bag"
 function Util.ItemNameFromLink(link)
   if type(link) ~= "string" then return nil end

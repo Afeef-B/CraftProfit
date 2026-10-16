@@ -39,6 +39,9 @@ local messages = {}
 function Flip.Info(id)
   local rows = ns.Listings.Get(id)
   if not rows then return nil end
+  -- Random-enchant variants share the id, not the price: a cheap one is just a
+  -- cheaper variant.
+  if ns.Listings.MixedSuffix(rows) then return nil end
   local s = ns.Listings.Summarize(rows)
   if not s.flip or not s.flipRef then return nil end
   local cut = ns.db and ns.db.cut or DEFAULT_CUT
