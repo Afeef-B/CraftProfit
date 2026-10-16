@@ -298,7 +298,11 @@ local function newObject(name)
 end
 Mock.newObject = newObject
 
-function FrameMethods.CreateFontString(_, name) return newObject(name) end
+function FrameMethods.CreateFontString(_, name, _, font)
+  local fs = newObject(name)
+  fs._font = font  -- the font object it was created with, e.g. "GameFontHighlight"
+  return fs
+end
 function FrameMethods.CreateTexture(_, name) return newObject(name) end
 function FrameMethods.GetName(self) return self._name end
 function FrameMethods.GetParent(self) return self._parent end

@@ -181,4 +181,17 @@ return {
     UI.scanButton:GetScript("OnClick")(UI.scanButton)
     T.eq(UI.statusText:GetText(), "Nothing tracked yet. Tick \"Track\" on a recipe in your profession window.")
   end,
+
+  panel_rows_readable = function(T)
+    local ns, UI = load()
+    UI = UI or ns.UI
+    UI.EnsurePanel()
+    T.eq(UI.rows[1]:GetHeight(), ns.Style.ROW_H)
+    for _, key in ipairs({ "name", "cost", "sell", "profit", "margin" }) do
+      local font = UI.rows[1][key]._font
+      T.ok(font and not font:find("Small", 1, true), key .. " uses a readable font, got " .. tostring(font))
+    end
+    T.ok(not UI.statusText._font:find("Small", 1, true), "status line readable")
+    T.eq(CraftProfitPanel._backdrop.edgeFile, ns.Style.BACKDROP.edgeFile, "same box as the pages")
+  end,
 }

@@ -9,7 +9,7 @@ ns.UI = {}
 local UI = ns.UI
 
 local WIDTH, HEIGHT = 400, 424
-local ROWS, ROW_HEIGHT = 14, 20
+local ROWS, ROW_HEIGHT = 14, ns.Style.ROW_H
 local GOOD, BAD, GREY, WHITE = "|cff40ff40", "|cffff4040", "|cff808080", "|cffffffff"
 local SOURCE_LABEL = { ah = "AH", vendor = "vendor", craft = "craft", manual = "manual", atr = "Atr" }
 -- Ready-made rows (the default) carry no marker. From-scratch rows start
@@ -195,8 +195,8 @@ function UI.UpdateScanButtons()
   end
 end
 
-local function makeText(parent, font, width, justify)
-  local fs = parent:CreateFontString(nil, "OVERLAY", font)
+local function makeText(parent, kind, width, justify)
+  local fs = ns.Style.Text(parent, kind)
   fs:SetWidth(width)
   fs:SetHeight(14)
   fs:SetJustifyH(justify)
@@ -235,6 +235,11 @@ local function createRow(i)
   row:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -104 - (i - 1) * ROW_HEIGHT)
   row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
   row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  if i % 2 == 0 then
+    local stripe = row:CreateTexture(nil, "BACKGROUND")
+    stripe:SetAllPoints(row)
+    stripe:SetTexture(1, 1, 1, 0.06)
+  end
 
   row.icon = row:CreateTexture(nil, "ARTWORK")
   row.icon:SetWidth(16)
@@ -242,7 +247,7 @@ local function createRow(i)
   row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
 
   for _, col in ipairs(COLUMNS) do
-    local fs = makeText(row, "GameFontHighlightSmall", col.width, col.justify)
+    local fs = makeText(row, "value", col.width, col.justify)
     fs:SetPoint("LEFT", row, "LEFT", col.x, 0)
     row[col.key] = fs
   end
@@ -280,16 +285,12 @@ function UI.EnsurePanel()
   panel:SetWidth(WIDTH)
   panel:SetHeight(HEIGHT)
   panel:SetPoint("TOPLEFT", AuctionFrame, "TOPRIGHT", -2, -12)
-  panel:SetBackdrop({
-    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-    tile = true, tileSize = 32, edgeSize = 32,
-    insets = { left = 11, right = 12, top = 12, bottom = 11 },
-  })
+  panel:SetBackdrop(ns.Style.BACKDROP)
+  panel:SetBackdropColor(0.06, 0.06, 0.09, 0.95)
   panel:EnableMouse(true)
   panel:SetScript("OnShow", UI.Refresh)
 
-  local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", panel, "TOP", 0, -18)
   title:SetText(addonName)
 
@@ -299,12 +300,12 @@ function UI.EnsurePanel()
   UI.scanButton = createButton("CraftProfitScanButton", "Scan tracked", 130, 18, onScanClick)
   UI.scanAllButton = createButton("CraftProfitScanAllButton", "Scan All", 130, 152, onScanAllClick)
 
-  UI.statusText = makeText(panel, "GameFontHighlightSmall", WIDTH - 40, "LEFT")
+  UI.statusText = makeText(panel, "value", WIDTH - 40, "LEFT")
   UI.statusText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -68)
   UI.statusText:SetText(ns.Scanner.statusText ~= "" and ns.Scanner.statusText or "Press \"Scan tracked\" to update prices.")
 
   for _, col in ipairs(COLUMNS) do
-    local header = makeText(panel, "GameFontNormalSmall", col.width, col.justify)
+    local header = makeText(panel, "title", col.width, col.justify)
     header:SetPoint("TOPLEFT", panel, "TOPLEFT", 16 + col.x, -88)
     header:SetText(col.title)
   end
@@ -318,12 +319,12 @@ function UI.EnsurePanel()
     FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, UI.Update)
   end)
 
-  UI.emptyText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  UI.emptyText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
   UI.emptyText:SetWidth(WIDTH - 80)
   UI.emptyText:SetPoint("TOP", panel, "TOP", 0, -150)
   UI.emptyText:SetText("Open Tailoring, select a recipe and tick \"Track\" to follow its profit here.")
 
-  UI.footer = makeText(panel, "GameFontDisableSmall", WIDTH - 40, "LEFT")
+  UI.footer = makeText(panel, "label", WIDTH - 40, "LEFT")
   UI.footer:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 20, 18)
 end
 
