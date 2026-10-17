@@ -14,6 +14,7 @@ Recipes.lua
 Scanner.lua
 Listings.lua
 Lists.lua
+Tooltip.lua
 Buyer.lua
 UI.lua
 ListingsUI.lua

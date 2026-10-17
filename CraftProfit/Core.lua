@@ -102,6 +102,7 @@ end
 function Core.OnEvent(event, arg1, arg2)
   if event == "PLAYER_LOGIN" then
     Core.InitDB()
+    ns.Tooltip.Install()
     for _, e in ipairs(RUNTIME_EVENTS) do frame:RegisterEvent(e) end
     hooksecurefunc("QueryAuctionItems", ns.Scanner.OnQuery)
     frame:SetScript("OnUpdate", Core.OnUpdate)

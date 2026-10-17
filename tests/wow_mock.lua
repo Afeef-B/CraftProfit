@@ -14,13 +14,16 @@ function Mock.reset()
   Mock.playerName = "Me"
   UnitName = function() return Mock.playerName or "Me" end
   UnitFactionGroup = function() return "Alliance" end
-  hooksecurefunc = function(name, fn)
-    local orig = _G[name]
-    Mock.hooks[name] = fn
-    _G[name] = function(...)
-      local a, b, c, d = orig(...)
+  -- hooksecurefunc("Name", fn) or hooksecurefunc(table, "method", fn)
+  hooksecurefunc = function(a, b, c)
+    local tbl, name, fn = _G, a, b
+    if type(a) == "table" then tbl, name, fn = a, b, c end
+    local orig = tbl[name]
+    if tbl == _G then Mock.hooks[name] = fn end
+    tbl[name] = function(...)
+      local r1, r2, r3, r4 = orig(...)
       fn(...)
-      return a, b, c, d
+      return r1, r2, r3, r4
     end
   end
   DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) Mock.chat[#Mock.chat + 1] = msg end }
@@ -265,6 +268,12 @@ function Mock.reset()
     if not item then return nil end
     return Mock.Link(item.id, item.name, item.suffix)
   end
+  -- texture, count, locked, quality, readable
+  GetContainerItemInfo = function(bag, slot)
+    local item = Mock.bags[bag] and Mock.bags[bag][slot]
+    if not item then return nil end
+    return "tex", item.count or 1, nil, 1, nil
+  end
   GetItemCount = function(id)
     local total = 0
     for _, contents in pairs(Mock.bags) do
@@ -413,6 +422,23 @@ function FrameMethods.GetHeight(self) return self._height or 0 end
 function FrameMethods.AddLine(self, text) table.insert(Mock.tooltip, text or "") end
 function FrameMethods.AddDoubleLine(self, left, right) table.insert(Mock.tooltip, (left or "") .. " | " .. (right or "")) end
 function FrameMethods.ClearLines() Mock.tooltip = {} end
+-- Tooltips: the item shown (GetItem) and the client's script order.
+function FrameMethods.HookScript(self, kind, fn)
+  local prev = self._scripts[kind]
+  self._scripts[kind] = function(...)
+    if prev then prev(...) end
+    fn(...)
+  end
+end
+function FrameMethods.GetItem(self) return self._itemName, self._itemLink end
+-- Like the client: the item is set, OnTooltipSetItem runs, then the call returns.
+function FrameMethods.SetBagItem(self, bag, slot)
+  local item = Mock.bags[bag] and Mock.bags[bag][slot]
+  if not item then return end
+  self._itemName, self._itemLink = item.name, Mock.Link(item.id, item.name, item.suffix)
+  local fn = self._scripts.OnTooltipSetItem
+  if fn then fn(self) end
+end
 function FrameMethods.SetID(self, id) self._id = id end
 function FrameMethods.GetID(self) return self._id or 0 end
 function FrameMethods.SetBackdrop(self, backdrop) self._backdrop = backdrop end
@@ -491,6 +517,7 @@ function Mock.installUI()
   TradeSkillDetailScrollChildFrame = newObject("TradeSkillDetailScrollChildFrame")
   TradeSkillSkillName = newObject("TradeSkillSkillName")
   GameTooltip = newObject("GameTooltip")
+  ItemRefTooltip = newObject("ItemRefTooltip")
   TradeSkillFrame_SetSelection = function() end
   FauxScrollFrame_Update = function() end
   FauxScrollFrame_GetOffset = function(frame) return frame.offset end
@@ -540,6 +567,23 @@ function Mock.installUI()
   IsAddOnLoaded = function(name) return Mock.loadedAddOns and Mock.loadedAddOns[name] or nil end
   CraftProfitDB, CraftProfitCharDB = nil, nil
   SLASH_CRAFTPROFIT1, SLASH_CRAFTPROFIT2 = nil, nil
+end
+
+-- Show item `id` on a tooltip the way the client does: the item is set and
+-- the tooltip's OnTooltipSetItem script runs.
+function Mock.setTooltipItem(tip, id)
+  local item = Mock.items[id] or {}
+  tip._itemName, tip._itemLink = item.name, Mock.Link(id, item.name)
+  local fn = tip._scripts.OnTooltipSetItem
+  if fn then fn(tip) end
+end
+
+-- The tooltip hides or shows something else: OnTooltipCleared, lines gone.
+function Mock.clearTooltip(tip)
+  local fn = tip._scripts.OnTooltipCleared
+  if fn then fn(tip) end
+  tip._itemName, tip._itemLink = nil, nil
+  Mock.tooltip = {}
 end
 
 -- Answer the last query, as the server would.

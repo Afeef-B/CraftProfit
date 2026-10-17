@@ -32,6 +32,7 @@ for name in ([[
   GetOwnerAuctionItems GetAuctionItemTimeLeft CanCancelAuction CancelAuction ACCEPT CANCEL
   FauxScrollFrame_SetOffset MoneyInputFrame_GetCopper MoneyInputFrame_SetCopper
   MoneyInputFrame_ResetMoney MoneyInputFrame_SetOnValueChangedFunc IsAltKeyDown
+  ItemRefTooltip GetContainerItemInfo
 ]]):gmatch("%S+") do KNOWN_READS[name] = true end
 
 local files = { ... }

@@ -5,7 +5,7 @@ local BAG, BOLT, CLOTH, THREAD, DUST = 41599, 41510, 33470, 38426, 34054
 -- Every addon file, in the order of the toc.
 local ALL = {
   "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua", "Lists.lua",
-  "Buyer.lua", "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Buy.lua", "BuyUI.lua", "Sell.lua", "SellUI.lua",
+  "Tooltip.lua", "Buyer.lua", "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Buy.lua", "BuyUI.lua", "Sell.lua", "SellUI.lua",
   "Auctions.lua", "AuctionsUI.lua", "Core.lua",
 }
 
@@ -940,7 +940,7 @@ return {
     end
     T.eq(table.concat(files, " "), table.concat({
       "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua", "Listings.lua",
-      "Lists.lua", "Buyer.lua", "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Buy.lua", "BuyUI.lua", "Sell.lua",
+      "Lists.lua", "Tooltip.lua", "Buyer.lua", "UI.lua", "ListingsUI.lua", "Tabs.lua", "Flip.lua", "Buy.lua", "BuyUI.lua", "Sell.lua",
       "SellUI.lua", "Auctions.lua", "AuctionsUI.lua", "Core.lua",
     }, " "))
   end,
