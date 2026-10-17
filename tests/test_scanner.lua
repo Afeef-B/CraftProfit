@@ -960,4 +960,39 @@ return {
     T.eq(Mock.ahClasses[q[5]], "Gem", "the page numbers match the price check's")
     T.eq(Mock.ahSubClasses.Gem[q[6]], "Simple")
   end,
+
+  -- The client often hasn't cached an item the player never had (a tailor's
+  -- King's Amber): the first page goes out by name only. Once that page is in,
+  -- the item is known, and the search starts over in its category instead of
+  -- reading every page of every cut King's Amber.
+  category_found_after_the_first_page_restarts_the_search = function(T)
+    local ns, Scanner, Prices = load()
+    local KING, CUT = 36919, 40123
+    Mock.items[CUT] = { name = "Brilliant King's Amber", type = "Gem", subType = "Yellow" }
+    local auctions = {}
+    for i = 1, 120 do auctions[i] = auction(CUT, "Brilliant King's Amber", 1, 1500000, "Cutter" .. i) end
+    for i = 1, 3 do auctions[#auctions + 1] = auction(KING, "King's Amber", 1, 2000000 + i, "Miner" .. i) end
+    Mock.ah.auctions = auctions
+    -- the item info arrives with the first answer
+    hooksecurefunc("QueryAuctionItems", function()
+      Mock.items[KING] = { name = "King's Amber", type = "Gem", subType = "Simple" }
+    end)
+    T.ok(Scanner.PriceCheck({ id = KING, name = "King's Amber" }))
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 2, "page 1 by name, then page 1 in Gem > Simple: not 3 pages")
+    T.eq(Mock.queries[1][5], nil)
+    T.eq(Mock.ahClasses[Mock.queries[2][5]], "Gem")
+    T.eq(#ns.Listings.Get(KING), 3, "all three uncut King's Amber, none lost to page numbers changing")
+    T.eq(Prices.GetAH(KING), 2000001)
+  end,
+
+  scan_status_names_the_category = function(T)
+    local ns, Scanner = load()
+    local KING = 36919
+    Mock.items[KING] = { name = "King's Amber", type = "Gem", subType = "Simple" }
+    Mock.ah.auctions = { auction(KING, "King's Amber", 1, 2000000, "Miner") }
+    T.ok(Scanner.PriceCheck({ id = KING, name = "King's Amber" }))
+    Scanner.Tick(0.1)
+    T.ok(Scanner.statusText:find("Gem > Simple", 1, true), Scanner.statusText)
+  end,
 }

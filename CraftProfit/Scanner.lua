@@ -51,6 +51,7 @@ function Scanner.IsAHOpen()
 end
 
 local function setStatus(text)
+  if text == Scanner.statusText then return end -- said already
   Scanner.statusText = text
   ns.Fire("SCAN_STATUS", text)
 end
@@ -104,6 +105,14 @@ local function category(id)
 end
 Scanner.Category = category
 
+-- "Gem > Simple", or nil for a search by name only.
+local function categoryText(class, subclass)
+  if not class then return nil end
+  local name = select(class, GetAuctionItemClasses())
+  if subclass then name = name .. " > " .. select(subclass, GetAuctionItemSubClasses(class)) end
+  return name
+end
+
 -- Ask the AH for one results page of a name search so the player can act on
 -- it. Not a scan: the scanner stays idle and never reads the answer. With the
 -- item's id the search is the price check's (same category), so its page
@@ -137,9 +146,17 @@ end
 
 local function sendQuery()
   local item = job.items[job.index]
-  local class, subclass = category(item.id)
+  -- The category is chosen once per item: every page of one search must use
+  -- the same one, or the page numbers mean different things.
+  if not job.filterSet then
+    job.class, job.subclass = category(item.id)
+    job.filterSet = true
+  end
+  local where = categoryText(job.class, job.subclass)
+  setStatus("Scanning " .. job.index .. "/" .. #job.items .. ": " .. item.name
+    .. (where and (" (" .. where .. ")") or "") .. (job.page > 0 and (", page " .. (job.page + 1)) or ""))
   Scanner.sending = true
-  local ok, err = pcall(QueryAuctionItems, item.name, "", "", nil, class, subclass, job.page, nil, -1, false)
+  local ok, err = pcall(QueryAuctionItems, item.name, "", "", nil, job.class, job.subclass, job.page, nil, -1, false)
   Scanner.sending = false
   if not ok then
     Scanner.Stop("error: " .. tostring(err))
@@ -153,6 +170,7 @@ end
 local function nextItem()
   job.index = job.index + 1
   job.page, job.best, job.n, job.retries = 0, nil, 0, 0
+  job.filterSet, job.class, job.subclass, job.restarted = nil, nil, nil, nil
   if job.collect then job.raw = {} end
   if job.index > #job.items then
     local count = #job.items
@@ -253,7 +271,21 @@ local function readPage(force)
     end
   end
 
-  if (job.page + 1) * PAGE_SIZE < (total or 0) then
+  local more = (job.page + 1) * PAGE_SIZE < (total or 0)
+  -- A first page that went out by name only (the item wasn't cached yet) and
+  -- has more pages after it: the client knows the item now, so search again in
+  -- its category rather than read every page of every item with that name.
+  if more and job.page == 0 and not job.class and not job.restarted then
+    local class, subclass = category(job.items[job.index].id)
+    if class then
+      job.class, job.subclass, job.restarted = class, subclass, true
+      job.best, job.n, job.retries = nil, 0, 0
+      if job.collect then job.raw = {} end
+      state = "send"
+      return
+    end
+  end
+  if more then
     job.page = job.page + 1
     job.retries = 0
     state = "send"
