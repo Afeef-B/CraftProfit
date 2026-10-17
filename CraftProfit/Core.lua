@@ -82,6 +82,7 @@ function Core.InitDB()
   ns.UI.SetDB(db)
   -- This character joins the ones whose auctions count as "you".
   ns.Listings.SetDB(db, Util.RealmKey(), UnitName("player"))
+  ns.Lists.SetDB(db)
   ns.Sell.SetDB(db)
   ns.Auctions.SetDB(db)
 end
@@ -172,13 +173,8 @@ frame:SetScript("OnEvent", function(_, event, ...) Core.OnEvent(event, ...) end)
 
 -- Item id for a known recipe/material name (any case), else the item cache.
 local function lookupName(name)
-  local wanted = name:lower()
-  for id, recipe in pairs(ns.Recipes.All()) do
-    if recipe.name:lower() == wanted then return id end
-    for _, reagent in ipairs(recipe.reagents) do
-      if reagent.name:lower() == wanted then return reagent.id end
-    end
-  end
+  local id = ns.Recipes.IdByName(name)
+  if id then return id end
   local _, link = GetItemInfo(name)
   return Util.ItemIDFromLink(link)
 end

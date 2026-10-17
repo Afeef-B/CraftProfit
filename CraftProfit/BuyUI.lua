@@ -214,7 +214,7 @@ local function drawMaterials()
   if recipeId then
     local recipe = ns.Recipes.Get(recipeId)
     if recipe then BuyUI.materialsLabel:SetText("Materials for: " .. recipe.name) end
-    list = Buy.Materials(recipeId, tonumber(BuyUI.crafts:GetText()) or 1)
+    list = ns.Lists.Materials(recipeId, tonumber(BuyUI.crafts:GetText()) or 1)
   end
   -- More materials than lines: the last line says how many are not shown.
   local shown = #list > MATERIAL_LINES and MATERIAL_LINES - 1 or MATERIAL_LINES

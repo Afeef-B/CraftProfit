@@ -13,6 +13,7 @@ Prices.lua
 Recipes.lua
 Scanner.lua
 Listings.lua
+Lists.lua
 Buyer.lua
 UI.lua
 ListingsUI.lua

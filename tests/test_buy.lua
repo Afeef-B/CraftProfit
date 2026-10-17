@@ -161,32 +161,6 @@ return {
     T.eq(#ns.Buy.Rows(), 1)
   end,
 
-  materials_ready_and_scratch = function(T)
-    local ns = setup()
-    local recipes = ns.Recipes.All()
-    recipes[BAG] = { name = BAG_NAME, made = 1, reagents = {
-      { id = BOLT, name = BOLT_NAME, count = 2 }, { id = THREAD, name = THREAD_NAME, count = 1 } } }
-    recipes[BOLT] = { name = BOLT_NAME, made = 1, reagents = { { id = CLOTH, name = CLOTH_NAME, count = 5 } } }
-    Mock.bags[0] = { [1] = { id = BOLT, name = BOLT_NAME, count = 2 } }
-
-    ns.Recipes.SetDepth(BAG, "ready")
-    local list = ns.Buy.Materials(BAG, 3)
-    T.eq(#list, 2)
-    T.eq(list[1].id, BOLT)
-    T.eq(list[1].need, 6)
-    T.eq(list[1].have, 2)
-    T.eq(list[2].id, THREAD)
-    T.eq(list[2].need, 3)
-
-    ns.Recipes.SetDepth(BAG, "scratch")
-    list = ns.Buy.Materials(BAG, 3)
-    T.eq(#list, 2)
-    T.eq(list[1].id, CLOTH)
-    T.eq(list[1].need, 30)
-    T.eq(list[2].id, THREAD)
-    T.eq(list[2].need, 3)
-  end,
-
   buy_never_without_click = function(T)
     local ns = setup({ cloth("A", 5, silver(9)) })
     searchCloth(ns)
@@ -340,17 +314,5 @@ return {
     T.eq(ns.Buy.Need(), 0)
     T.eq(ns.Buy.Pick(), nil, "nothing to buy when you have enough")
     T.eq(ns.Buy.Status(), "You have enough.")
-  end,
-
-  scratch_rounds_whole_crafts = function(T)
-    local ns = setup()
-    local recipes = ns.Recipes.All()
-    -- a bag takes 3 bolts; one craft of bolts makes 2 bolts from 5 cloth
-    recipes[BAG] = { name = BAG_NAME, made = 1, reagents = { { id = BOLT, name = BOLT_NAME, count = 3 } } }
-    recipes[BOLT] = { name = BOLT_NAME, made = 2, reagents = { { id = CLOTH, name = CLOTH_NAME, count = 5 } } }
-    ns.Recipes.SetDepth(BAG, "scratch")
-    local list = ns.Buy.Materials(BAG, 1)
-    T.eq(list[1].id, CLOTH)
-    T.eq(list[1].need, 10, "3 bolts take 2 whole bolt crafts: 10 cloth")
   end,
 }

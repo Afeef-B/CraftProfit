@@ -4,7 +4,7 @@
 -- (Buy.BuyCheapest, Buy.BuyRow); events only move the countdown along.
 local addonName, ns = ...
 
-local ceil, max = math.ceil, math.max
+local max = math.max
 
 ns.Buy = {}
 local Buy = ns.Buy
@@ -232,48 +232,6 @@ function Buy.Status()
     return "Bought " .. bought .. " of " .. need .. " (spent " .. ns.Style.Money(spent) .. ")"
   end
   return message
-end
-
--- What `crafts` crafts of recipeId take, as { id, name, need, have }. A
--- from-scratch recipe lists the materials of the materials it can craft.
-function Buy.Materials(recipeId, crafts)
-  local list, index = {}, {}
-  local scratch = ns.Recipes.Depth(recipeId) == "scratch"
-
-  local function add(id, name, qty)
-    local entry = index[id]
-    if not entry then
-      entry = { id = id, name = name, need = 0 }
-      index[id] = entry
-      list[#list + 1] = entry
-    end
-    entry.need = entry.need + qty
-  end
-
-  -- qty crafts of recipe `id`
-  local function expand(id, qty, visiting)
-    local recipe = ns.Recipes.Get(id)
-    visiting[id] = true
-    for _, reagent in ipairs(recipe.reagents) do
-      local amount = reagent.count * qty
-      local sub = scratch and ns.Recipes.Get(reagent.id)
-      if sub and not visiting[reagent.id] then
-        -- whole crafts: 3 bolts from a recipe that makes 2 take 2 crafts
-        expand(reagent.id, ceil(amount / (sub.made or 1) - 1e-9), visiting)
-      else
-        add(reagent.id, reagent.name, amount)
-      end
-    end
-    visiting[id] = nil
-  end
-
-  if not ns.Recipes.Get(recipeId) then return list end
-  expand(recipeId, crafts or 1, {})
-  for _, entry in ipairs(list) do
-    entry.need = ceil(entry.need - 1e-9)
-    entry.have = GetItemCount(entry.id)
-  end
-  return list
 end
 
 -- A purchase of the shown item went through: count it once.

@@ -26,6 +26,17 @@ local function boltRow()
 end
 
 return {
+  id_by_name_any_case = function(T)
+    local ns, R = load()
+    R.All()[41599] = { name = "Frostweave Bag", made = 1, reagents = {
+      { id = 33470, name = "Frostweave Cloth", count = 5 } } }
+    local id, name = R.IdByName("frostweave cloth")
+    T.eq(id, 33470); T.eq(name, "Frostweave Cloth")
+    id, name = R.IdByName("FROSTWEAVE BAG")
+    T.eq(id, 41599); T.eq(name, "Frostweave Bag")
+    T.eq(R.IdByName("Nothing like it"), nil)
+  end,
+
   reads_recipes_skips_headers = function(T)
     local _, R = load()
     Mock.trade.rows = { { type = "header", name = "Bags" }, bagRow() }

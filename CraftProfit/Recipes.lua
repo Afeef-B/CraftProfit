@@ -177,6 +177,19 @@ function Recipes.All()
   return store.recipes
 end
 
+-- id and its own spelling for a recipe product or reagent name (any case),
+-- or nil.
+function Recipes.IdByName(name)
+  local wanted = tostring(name or ""):lower()
+  for id, recipe in pairs(store.recipes) do
+    if recipe.name:lower() == wanted then return id, recipe.name end
+    for _, reagent in ipairs(recipe.reagents) do
+      if reagent.name:lower() == wanted then return reagent.id, reagent.name end
+    end
+  end
+  return nil
+end
+
 function Recipes.SelectedProductID()
   local index = GetTradeSkillSelectionIndex()
   if not index or index < 1 then return nil end
