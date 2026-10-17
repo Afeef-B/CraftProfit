@@ -8,13 +8,15 @@ profit for each craft you track in a panel beside the Auction House.
 Since version 1.1 it also helps you **sell**, and since 1.2 **buy**: three
 extra Auction House tabs, **CP Sell** (post an item at the right price),
 **CP Auctions** (see which of your auctions got undercut, and cancel them)
-and **CP Buy** (the cheapest listings of an item first, bought one click at a
-time). Everything that spends or posts something happens only when you click
-a button. CraftProfit never posts, cancels or buys by itself.
+and **CP Buy** (search the Auction House like Auctionator, with shopping
+lists; the cheapest listings first, bought one click at a time). Since 1.3
+the prices it has seen also show on **item tooltips**, outside the Auction
+House too. Everything that spends or posts something happens only when you
+click a button. CraftProfit never posts, cancels or buys by itself.
 
-Every CP page has the same layout inside the Auction House window: boxed
-sections on the left, the item's listings on the right, and a status line
-along the bottom.
+Every CP page fits inside the Auction House window, with a status line along
+the bottom. CP Sell and CP Auctions have boxed sections on the left and the
+item's listings on the right; CP Buy uses the whole width for its list.
 
 ## Install
 
@@ -128,10 +130,15 @@ Auctionator's.
    it says "That's a mistake listing - use Buy it to flip it." Listings of
    random-enchant items are never marked or offered as a flip.
    Change the 50% with `/cp outlier`.
-5. **Amount (stack x auctions).** By default it posts **one auction of 2**
-   (one of 1 for things that don't stack, like bags), so the rest stays in
+5. **Amount (stack x auctions).** Out of the box it posts **one auction of
+   2** (one of 1 for things that don't stack, like bags), so the rest stays in
    your bags and you can undercut back when someone undercuts you. Change
-   either box to post more. If you
+   either box to post more. **Each item remembers** what you last posted it
+   with: post cloth as 20 x 5 once, and the next time you put cloth in it
+   starts at 20 x 5. For items you haven't posted yet, set your own start
+   numbers: type them in the boxes and click **Set as default** (or type
+   `/cp post 5 3` in chat). The numbers are always cut to what you have: with
+   20 x 5 saved and 60 cloth in your bags it starts at 20 x 3. If you
    ask for more than you have, Post is off and the page says "You only have N."
    A stack size above the item's maximum stack says "Stack size is more than
    N."
@@ -203,44 +210,83 @@ the list.
 
 ## CP Buy
 
-The normal Auction House search doesn't sort by price per item. CP Buy does.
-It also searches only the item's own category (for example Gem > Simple for
-an uncut King's Amber), so items that merely share the name, like the cut
-King's Ambers, don't come back. Every CraftProfit scan works that way.
+CP Buy works like Auctionator's Buy tab, across the whole Auction House
+window: search first, see every matching item, then click one to see its
+listings, cheapest per item first.
 
-1. **Find the item.** Type its name in the search box and press Enter (or
-   Search). Or keep your Tailoring window open next to the Auction House and
-   **shift-click** a reagent in it (or any item in your bags or a chat link)
-   while CP Buy is open: it searches that item. The name must be the item's
-   exact name; searching "Frostweave Cloth" shows only the cloth, not bolts
-   or bags.
-2. **Or pick a recipe.** Click **Materials for:**, choose one of your tracked
-   recipes and type how many **Crafts** you want. Each material shows "have /
-   need" (green when you have enough). It follows the recipe's ready-made /
-   from-scratch choice. Click a material to search it with **Need** already
-   filled in (what you still lack); if you already have enough it says "You
-   have enough." Items you buy arrive by **mail**, so "have" only goes up once
-   you collect them. A list with more than 6 materials ends with "... and N
-   more".
-3. **The list** on the right is cheapest per item first: quantity, price each,
-   price of the stack, seller. A mistake listing shows a green **deal**: on
-   this page it is simply the best buy. Your own and your alts' listings show
-   **YOU** and can't be bought.
-4. **Buy cheapest** buys the cheapest listing, one per click. The button says
-   what it will buy ("Buy cheapest: 5 for 1g 20s"). With a **Need** set it
-   skips stacks bigger than what you still need when a smaller one is there,
-   and counts down: "Bought 20 of 40 (spent ...)", then "Done (bought 40)".
-   A bought listing stays greyed ("bought") until the list refreshes, and is
-   never bought twice.
-5. **Buy this** buys exactly the listing you clicked in the list.
+1. **Search.** Type a name in the search box and press Enter (or Search).
+   - **An exact item name opens that item at once**, for example "King's
+     Amber" or "Frostweave Cloth". It searches only the item's own category
+     (Gem > Simple for an uncut King's Amber), so it reads one or two pages,
+     not every cut King's Amber. This works for any item the game already
+     knows, and for your tracked recipes and their materials.
+   - **Any other text lists every item it finds**: "frost" shows Frostweave
+     Cloth, Bolt of Frostweave, Frostweave Bag and so on, one line each with
+     the cheapest price each, how many auctions, how many items in total and
+     how long ago it was seen. Click a line to open that item. A search reads
+     at most 20 pages (1000 listings); past that it says "Showing the first
+     1000 listings - type more of the name."
+   - Or keep your Tailoring window open next to the Auction House and
+     **shift-click** a reagent in it (or any item in your bags or a chat link)
+     while CP Buy is open: it opens that item.
+2. **The item's listings** are grouped: identical stacks are one line, like
+   "20 | 3 auctions | 9s each | 1g 80s per stack | Bob +2". A mistake listing
+   shows a green **deal**: on this page it is simply the best buy. Your own
+   and your alts' listings show **YOU** and can't be bought. An item checked
+   in the last 3 minutes is shown as it was, without searching again.
+3. **Buy one** buys one stack of the line you clicked, per click; the line's
+   auction count goes down. The button shows what it will spend ("Buy one
+   (1g 80s)").
+4. **Buy cheapest** buys the cheapest listing, one per click ("Buy cheapest:
+   5 for 1g 20s"). With a **Need** set it skips stacks bigger than what you
+   still need when a smaller one is there, and counts down: "Bought 20 of 40
+   (spent ...)", then "Done (bought 40)". A bought listing is never bought
+   twice.
+5. **< Back** returns to the results or the shopping list you came from.
 
-If the listing isn't on the Auction House page that's loaded, the first click
-says "Finding it..." and loads it; click again to buy. If a listing has
+**Shopping lists.** Click **Lists v**:
+
+- Every tracked recipe has its own list, "Glacial Bag materials". Type how
+  many **Crafts** you want; each material shows "have / need" (green when you
+  have enough). It follows the recipe's ready-made / from-scratch choice.
+  Click a material to open it with **Need** already filled in (what you still
+  lack); if you already have enough it says "You have enough."
+- **New list...** makes your own list. In an item, **+ To list** puts it on
+  one of your lists (or on a new one). Right-click an item in your own list
+  to take it off. **Delete <list>** removes a list.
+- Every list shows the cheapest price each and how long ago it was seen.
+  **Search all** checks the prices of everything on the list, except items
+  checked in the last 3 minutes.
+
+Items you buy arrive by **mail**, so "have" only goes up once you collect
+them. If the listing isn't on the Auction House page that's loaded, the first
+click says "Finding it..." and loads it; click again to buy. If a listing has
 already been bought by someone else, the page says "That listing is gone."
 and searches the item again by itself, so the next click buys the next
 cheapest. Shift-clicking a stackable item in your bags also opens the game's
 "split stack" box; just close it (or shift-click the reagent in your
 Tailoring window instead).
+
+## Prices on tooltips
+
+Every price CraftProfit sees (Scan tracked, Scan All, CP Buy searches, price
+checks) is saved per realm and faction. Hover over any item, in your bags, a
+chat link or a vendor, and the tooltip shows:
+
+- `CraftProfit AH: 12g 50s (2h ago)`: the cheapest buyout each (not a mistake
+  listing) when it was last seen, or "not seen yet", or "none listed" when
+  the last check found none.
+- `Craft cost: 8g (ready-made)` or `(from scratch)` for your own recipes.
+- `x20: 250g` for a stack in your bags: what the whole stack is worth.
+
+## No needless rescans
+
+An item checked in the last **3 minutes** is not searched again: **Scan
+tracked** skips it ("Scan done: 5 items (3 still fresh, skipped)"), and CP
+Buy and CP Auctions show what they found a moment ago. Change the time with
+`/cp fresh <minutes>` (0-60); `/cp fresh 0` always searches again. CP Sell
+always checks when you put an item in, because the price you post must be
+current.
 
 ### Alts
 
@@ -281,6 +327,8 @@ it is 15%, so use `/cp cut 15` there.
 | `/cp track` | Track or untrack the recipe selected in the profession window |
 | `/cp price <item> <price>` | Set your own price: `/cp price Eternium Thread 1.5` or shift-click the item: `/cp price [Bolt of Frostweave] 1g50s`. Use `clear` to remove it |
 | `/cp cut <percent>` | AH cut, default 5 |
+| `/cp fresh <minutes>` | Don't search again for items checked this recently: 0-60, default 3. 0 always searches |
+| `/cp post <items> <auctions>` | The stack size x auctions CP Sell starts items at that you haven't posted before: default 2 x 1. `/cp post` alone shows it |
 | `/cp outlier <percent>` | How low a listing must be, compared with the next one, to count as a mistake (a flip): 1-99, default 50. Applies from the next price check |
 | `/cp list` | Print the profit of every tracked craft to chat |
 | `/cp reset prices` | Forget scanned AH prices for this realm and faction |
@@ -369,8 +417,27 @@ once. Use something cheap you don't mind posting, such as a Glacial Bag.
       searches that item. With the chat box open, the link goes to chat.
 - [ ] Search "Frostweave Cloth": only cloth is listed, cheapest per item first.
 - [ ] Set Need 40 and press **Buy cheapest** until it says "Done (bought 40)".
-- [ ] Pick a tracked recipe in **Materials for:**, set Crafts, click a material:
-      it searches it and fills in Need.
+
+### CP Buy like Auctionator, tooltips and post sizes (version 1.3)
+
+- [ ] CP Buy fills the Auction House window: search bar at the top, the list,
+      the buttons, the status line, nothing overlapping.
+- [ ] Search "King's Amber": it opens the uncut King's Amber after one or two
+      pages, and none of the cut ones are listed.
+- [ ] Search "frost": one line per item; click one, then **< Back**.
+- [ ] In an item, click a line and **Buy one**: one stack is bought and the
+      line's auction count goes down.
+- [ ] **Lists v** shows "<recipe> materials" for a tracked recipe; Crafts 3
+      triples the need. Make a **New list...**, add an item with **+ To list**,
+      right-click it off again.
+- [ ] **Scan tracked** twice in a row: the second time it says the items are
+      still fresh and skips them.
+- [ ] Hover over cloth in your bags away from the Auction House: the tooltip
+      shows the CraftProfit AH price and its age, and "x20: ..." on a stack.
+      A recipe of yours also shows "Craft cost".
+- [ ] Post cloth as 20 x 5, then put cloth in again: it starts at 20 x 5.
+      **Set as default** with 5 x 3, then put in an item you never posted: it
+      starts at 5 x 3.
 
 ## Development
 

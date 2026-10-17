@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: CraftProfit
-## Notes: Scans the Auction House and shows whether your crafts make a profit. CP Sell posts auctions at the best price; CP Auctions shows which of your auctions are undercut; CP Buy finds the cheapest listings.
+## Notes: Scans the Auction House and shows whether your crafts make a profit. CP Sell posts auctions at the best price; CP Auctions shows which of your auctions are undercut; CP Buy searches like Auctionator, with shopping lists; AH prices on item tooltips.
 ## Author: afefbes1
-## Version: 1.2.2
+## Version: 1.3.0
 ## SavedVariables: CraftProfitDB
 ## SavedVariablesPerCharacter: CraftProfitCharDB
 

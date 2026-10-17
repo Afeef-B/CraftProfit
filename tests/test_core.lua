@@ -938,7 +938,7 @@ return {
     local f = assert(io.open(Mock.root .. "CraftProfit.toc", "r"))
     local toc = f:read("*a")
     f:close()
-    T.ok(toc:find("## Version: 1.2.2", 1, true), "version 1.2.2")
+    T.ok(toc:find("## Version: 1.3.0", 1, true), "version 1.3.0")
     local files = {}
     for line in toc:gmatch("[^\n]+") do
       if line:match("%.lua$") then files[#files + 1] = line end
