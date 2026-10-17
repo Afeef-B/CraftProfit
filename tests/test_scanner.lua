@@ -23,6 +23,125 @@ local CLOTH_ITEM = { id = CLOTH, name = "Frostweave Cloth" }
 local THREAD_ITEM = { id = THREAD, name = "Eternium Thread" }
 
 return {
+  search_groups_every_item = function(T)
+    local ns, S = load()
+    local BOLT, BAG = 41510, 41599
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 20, 2000, "A"),
+      auction(BAG, "Frostweave Bag", 1, gold(400), "B"),
+      auction(CLOTH, "Frostweave Cloth", 5, 450, "C"),
+      auction(BOLT, "Bolt of Frostweave", 2, 1200, "D"),
+      auction(BOLT, "Bolt of Frostweave", 3, 1500, "E"),
+      auction(BOLT, "Bolt of Frostweave", 1, 700, "F"),
+    }
+    local done
+    ns.On("SEARCH_DONE", function(text, results, capped, exactId)
+      done = { text = text, results = results, capped = capped, exactId = exactId }
+    end)
+    T.eq(S.Search("frostweave"), true)
+    T.ok(Mock.pump(ns))
+    T.ok(done, "SEARCH_DONE fired")
+    T.eq(done.text, "frostweave")
+    T.eq(done.capped, false)
+    T.eq(done.exactId, nil)
+    local r = done.results
+    T.eq(#r, 3)
+    T.eq(r[1].name, "Bolt of Frostweave"); T.eq(r[1].id, BOLT)
+    T.eq(r[1].auctions, 3); T.eq(r[1].quantity, 6); T.eq(r[1].unit, 500)
+    T.eq(r[2].name, "Frostweave Bag"); T.eq(r[2].auctions, 1); T.eq(r[2].unit, gold(400))
+    T.eq(r[3].name, "Frostweave Cloth"); T.eq(r[3].auctions, 2); T.eq(r[3].quantity, 25); T.eq(r[3].unit, 90)
+    T.eq(r[3].t, Mock.now)
+    T.eq(r[3].texture, "tex")
+    T.eq(S.statusText, "Search done: 3 items")
+  end,
+
+  search_reads_every_page = function(T)
+    local ns, S = load()
+    for i = 1, 120 do Mock.ah.auctions[i] = auction(CLOTH, "Frostweave Cloth", 1, 1000 + i, "S" .. i) end
+    T.eq(S.Search("frostweave"), true)
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 3)
+    for page = 0, 2 do
+      local q = Mock.queries[page + 1]
+      T.eq(q[1], "frostweave"); T.eq(q[7], page); T.eq(q[5], nil, "no category")
+    end
+  end,
+
+  search_stores_prices_not_listings = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "A"),
+      auction(CLOTH, "Frostweave Cloth", 1, 900, "B"),
+    }
+    S.Search("frostweave")
+    T.ok(Mock.pump(ns))
+    local price, t, n = P.GetAH(CLOTH)
+    T.eq(price, 900); T.eq(t, Mock.now); T.eq(n, 2)
+    T.eq(ns.Listings.Get(CLOTH), nil, "the rows' pages belong to the name search")
+  end,
+
+  capped_search_stores_no_prices = function(T)
+    local ns, S, P = load()
+    for i = 1, 1100 do
+      local id = 50000 + (i % 7)
+      Mock.ah.auctions[i] = auction(id, "Frost thing " .. id, 1, 1000 + i, "S" .. i)
+    end
+    local capped
+    ns.On("SEARCH_DONE", function(_, results, c) capped = c end)
+    S.Search("frost")
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 20)
+    T.eq(capped, true)
+    T.eq(S.statusText, "Showing the first 1000 listings - type more of the name.")
+    for k = 0, 6 do T.eq((P.GetAH(50000 + k)), nil) end
+  end,
+
+  stop_on_exact_name = function(T)
+    local ns, S, P = load()
+    local AMBER, BRILLIANT = 36921, 36919
+    for i = 1, 120 do Mock.ah.auctions[i] = auction(BRILLIANT, "Brilliant King's Amber", 1, 5000 + i, "S" .. i) end
+    for i = 1, 3 do Mock.ah.auctions[120 + i] = auction(AMBER, "King's Amber", 1, 9000 + i, "K" .. i) end
+    for i = 1, 60 do Mock.ah.auctions[123 + i] = auction(BRILLIANT, "Brilliant King's Amber", 1, 7000 + i, "T" .. i) end
+    local done
+    ns.On("SEARCH_DONE", function(_, results, capped, exactId) done = { exactId = exactId, capped = capped } end)
+    S.Search("king's amber", { stopOnExact = true })
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 3, "pages 0-2: the exact name is on page 2")
+    T.eq(done.exactId, AMBER)
+    T.eq((P.GetAH(AMBER)), nil, "a search that stopped early stores no prices")
+    T.eq((P.GetAH(BRILLIANT)), nil)
+  end,
+
+  search_busy_and_empty = function(T)
+    local _, S = load()
+    local ok, err = S.Search("   ")
+    T.eq(ok, false); T.eq(err, "empty")
+    T.eq(S.PriceCheck(CLOTH_ITEM), true)
+    ok, err = S.Search("frost")
+    T.eq(ok, false); T.eq(err, "busy")
+  end,
+
+  search_waits_for_links = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }
+    Mock.ah.nilLinks = true
+    S.Search("frost")
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    T.eq(S.IsBusy(), true, "not read while links are missing")
+    Mock.ah.nilLinks = false
+    S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+    T.eq(S.IsBusy(), false)
+    T.eq((P.GetAH(CLOTH)), 1000)
+    -- links that never come: read after the wait
+    Mock.ah.nilLinks = true
+    S.Search("frost")
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    for _ = 1, 21 do S.Tick(0.1) end
+    T.eq(S.IsBusy(), false)
+  end,
+
   scan_tracked_skips_fresh_items = function(T)
     local ns, S, P = load()
     local BOLT = 41510

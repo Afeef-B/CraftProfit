@@ -9,6 +9,8 @@ local LINK_WAIT = 2        -- seconds to wait for uncached item links
 local SCAN_ALL_COOLDOWN = 900
 local SCAN_ALL_TIMEOUT = 120
 local SCAN_ALL_CHUNK = 500 -- auctions read per frame so the game stays responsive
+local SEARCH_MAX_PAGES = 20 -- a name search reads at most this many pages (1000 listings)
+local SEARCH_CAPPED = "Showing the first 1000 listings - type more of the name."
 
 ns.Scanner = {}
 local Scanner = ns.Scanner
@@ -97,6 +99,25 @@ function Scanner.PriceCheck(item)
   return Scanner.StartTargeted({ item }, { collect = true })
 end
 
+-- Everything a name search finds, item by item (CP Buy's results). Fires
+-- SEARCH_DONE(text, results, capped, exactId). Only a search that read every
+-- page stores prices; no search stores listings, because their page numbers
+-- belong to this name search, not to the item's own (category) price check.
+-- opts.stopOnExact: end at the first page with an item named exactly `text`.
+function Scanner.Search(text, opts)
+  if not ahOpen then return false, "closed" end
+  if state ~= "idle" then return false, "busy" end
+  text = (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+  if text == "" then return false, "empty" end
+  job = {
+    search = true, text = text, page = 0, retries = 0, found = {}, order = {},
+    stopOnExact = opts and opts.stopOnExact,
+  }
+  state = "send"
+  setStatus('Searching "' .. text .. '"...')
+  return true
+end
+
 -- The AH searches names by part: "King's Amber" also finds every cut King's
 -- Amber, page after page. Searching in the item's own Browse category (Gem >
 -- Simple) leaves the other items out. class, subclass indexes into
@@ -146,6 +167,12 @@ end
 
 function Scanner.Stop(reason)
   if state == "idle" then return end
+  if job.search then
+    state, job = "idle", nil
+    setStatus("Search stopped (" .. reason .. ")")
+    ns.Fire("SCAN_FINISHED")
+    return
+  end
   if job.all then
     state, job = "idle", nil
     setStatus("Scan All stopped (" .. reason .. ")")
@@ -159,7 +186,23 @@ function Scanner.Stop(reason)
   ns.Fire("SCAN_FINISHED")
 end
 
+-- One results page of the name search (no category: every item counts).
+local function sendSearchQuery()
+  setStatus('Searching "' .. job.text .. '": page ' .. (job.page + 1))
+  Scanner.sending = true
+  local ok, err = pcall(QueryAuctionItems, job.text, "", "", nil, nil, nil, job.page, nil, -1, false)
+  Scanner.sending = false
+  if not ok then
+    Scanner.Stop("error: " .. tostring(err))
+    return
+  end
+  state = "wait"
+  job.waited, job.linkWait = 0, nil
+  job.queryKey = "search:" .. job.text .. ":" .. job.page
+end
+
 local function sendQuery()
+  if job.search then return sendSearchQuery() end
   local item = job.items[job.index]
   -- The category is chosen once per item: every page of one search must use
   -- the same one, or the page numbers mean different things.
@@ -200,6 +243,18 @@ local function nextItem()
   end
 end
 
+-- The price to store from normalized rows: the cheapest unit that is not a
+-- mistake listing; any seller counts, mine included. Rows without a buyout
+-- have unit 0.
+local function bestUnit(rows)
+  local unit
+  for i = 1, #rows do
+    local row = rows[i]
+    if row.unit > 0 and not row.outlier and (not unit or row.unit < unit) then unit = row.unit end
+  end
+  return unit
+end
+
 local function finishItem()
   local item = job.items[job.index]
   local unit = job.best and floor(job.best + 0.5) or nil
@@ -207,13 +262,7 @@ local function finishItem()
     local rows = ns.Listings.Normalize(job.raw, ns.Listings.MineSet(), ns.Listings.Ratio())
     -- Rows first: whoever hears about the new price can already read them.
     ns.Listings.Store(item.id, rows)
-    -- A mistake listing must not become the stored price; any other seller
-    -- counts, mine included. Rows without a buyout have unit 0.
-    unit = nil
-    for i = 1, #rows do
-      local row = rows[i]
-      if row.unit > 0 and not row.outlier and (not unit or row.unit < unit) then unit = row.unit end
-    end
+    unit = bestUnit(rows)
   end
   ns.Prices.SetAH(item.id, unit, job.n, ns.Now())
   ns.Fire("PRICES_CHANGED")
@@ -246,6 +295,79 @@ local function pagePrint(batch, total)
   }, ":")
 end
 
+-- A name search is done. capped: stopped at SEARCH_MAX_PAGES with more to
+-- come; exactId: stopped at the item named exactly like the search.
+local function finishSearch(capped, exactId)
+  local text, now = job.text, ns.Now()
+  local complete = not capped and not exactId
+  local results, exactName = {}, nil
+  for _, entry in ipairs(job.order) do
+    local rows = ns.Listings.Normalize(entry.raw, ns.Listings.MineSet(), ns.Listings.Ratio())
+    local unit, priced, quantity = bestUnit(rows), 0, 0
+    for i = 1, #rows do
+      quantity = quantity + (rows[i].count or 0)
+      if rows[i].unit > 0 then priced = priced + 1 end
+    end
+    if complete then ns.Prices.SetAH(entry.id, unit, priced, now) end
+    if entry.id == exactId then exactName = entry.name end
+    results[#results + 1] = {
+      id = entry.id, name = entry.name, texture = entry.texture,
+      unit = unit, auctions = #rows, quantity = quantity, t = now,
+    }
+  end
+  table.sort(results, function(a, b)
+    local an, bn = a.name:lower(), b.name:lower()
+    if an ~= bn then return an < bn end
+    return a.id < b.id
+  end)
+  state, job = "idle", nil
+  if exactId then
+    setStatus("Found " .. exactName)
+  elseif capped then
+    setStatus(SEARCH_CAPPED)
+  elseif #results == 0 then
+    setStatus('No items called "' .. text .. '" on the Auction House.')
+  else
+    setStatus("Search done: " .. #results .. " items")
+  end
+  ns.Fire("SEARCH_DONE", text, results, capped, exactId)
+  ns.Fire("PRICES_CHANGED")
+  ns.Fire("SCAN_FINISHED")
+end
+
+-- Every row of a search's results page, kept per item in first-seen order.
+local function readSearchPage(batch, total)
+  local wanted, exactId = job.text:lower(), nil
+  for i = 1, batch do
+    local link = GetAuctionItemLink("list", i)
+    local id = ns.Util.ItemIDFromLink(link)
+    if id then
+      local _, texture, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
+      local entry = job.found[id]
+      if not entry then
+        entry = { id = id, name = ns.Util.ItemNameFromLink(link) or ("item " .. id), texture = texture, raw = {} }
+        job.found[id] = entry
+        job.order[#job.order + 1] = entry
+      end
+      entry.raw[#entry.raw + 1] = {
+        count = count, buyout = buyout, seller = owner, page = job.page, index = i,
+        suffix = ns.Util.SuffixFromLink(link),
+      }
+      if job.stopOnExact and not exactId and entry.name:lower() == wanted then exactId = id end
+    end
+  end
+  if exactId then return finishSearch(false, exactId) end
+  local more = (job.page + 1) * PAGE_SIZE < (total or 0)
+  if more and job.page + 1 >= SEARCH_MAX_PAGES then return finishSearch(true) end
+  if more then
+    job.page = job.page + 1
+    job.retries = 0
+    state = "send"
+  else
+    finishSearch(false)
+  end
+end
+
 -- Read the current results page for the item being scanned. Unless forced,
 -- waits for the next update when some item links aren't cached yet.
 local function readPage(force)
@@ -266,6 +388,7 @@ local function readPage(force)
   end
 
   lastPrint, lastKey = fingerprint, job.queryKey
+  if job.search then return readSearchPage(batch, total) end
   local target = job.items[job.index].id
   for i = 1, batch do
     local link = GetAuctionItemLink("list", i)
@@ -423,6 +546,8 @@ function Scanner.Tick(elapsed)
         -- The retry's answer may legitimately repeat the last page.
         lastPrint = nil
         state = "send"
+      elseif job.search then
+        Scanner.Stop("no answer from the AH")
       else
         ns.Util.Print("No answer from the AH for " .. job.items[job.index].name .. ", skipped.")
         nextItem()
