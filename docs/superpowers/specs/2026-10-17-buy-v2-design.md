@@ -61,7 +61,7 @@ Every 1.2 money rule stays:
 +-----------------------------------------------------------------------------+
 | [ search box .................... ] [Search] [Lists v] [+ To list] [< Back] |
 +-----------------------------------------------------------------------------+
-|  (the view: results / item / list), 12 rows, full width, 18 px rows         |
+|  (the view: results / item / list), 11 rows, full width, 18 px rows         |
 +-----------------------------------------------------------------------------+
 | (the view's actions: Need box, Buy cheapest, Buy one, Crafts, Search all)   |
 +-----------------------------------------------------------------------------+
@@ -72,20 +72,26 @@ Every 1.2 money rule stays:
 **Results view** (after a search, unless the text is an exact item name)
 - `Scanner.Search(text)` reads every page of the name search and groups
   the rows by item id.
-- Each item's rows are normalized and stored with `Listings.Store`, which
-  also records the price in `Prices.SetAH`. So one search fills the price
-  database for every item it saw.
+- Each item's cheapest price (not a mistake listing) goes into the price
+  database with `Prices.SetAH`, so one search fills it for every item it
+  saw. The rows themselves are not kept as the item's listings: their page
+  numbers belong to the name search, and a purchase loads pages of the
+  item's own category search. The item view therefore checks the item
+  again unless it already has fresh listings from a price check.
+- A search that stopped early (the cap, or an exact name, below) stores no
+  prices: some items' listings were not all read.
 - One line per item: icon, name, cheapest each, the number of listings,
   the total quantity, and the age. Sorted by name.
 - Clicking a line opens the item view for that item.
 - Cap: at most 20 pages (1000 listings). Past that, the status line says
   "Showing the first 1000 listings - type more of the name."
 - **Exact names go straight to the item view.** If the text is the exact
-  name of an item the client knows (`GetItemInfo(text)`), the search goes
-  straight to the item view. That view uses a category search, so a
-  search for "King's Amber" reads one or two pages. Exact names the
-  client doesn't know yet use the 1.2 lookup (one name-only page) and
-  then the item view.
+  name of an item the client knows (`GetItemInfo(text)`), or of a tracked
+  recipe or one of its materials (any case), the search goes straight to
+  the item view. That view uses a category search, so a search for
+  "King's Amber" reads one or two pages. For other text the name search
+  stops at the first page that has an item with exactly that name and
+  opens its item view.
 
 **Item view** (one item's listings)
 - Rows are grouped by identical (count, buyout, mine) with
