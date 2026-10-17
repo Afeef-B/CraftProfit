@@ -10,6 +10,29 @@ local function load(db)
 end
 
 return {
+  is_fresh_inside_window = function(T)
+    local _, P = load()
+    P.SetAH(1, 100, 1, Mock.now - 179)
+    P.SetAH(2, 100, 1, Mock.now - 180)
+    P.SetAH(3, nil, 0, Mock.now)
+    T.eq(P.IsFresh(1), true, "179 s old")
+    T.eq(P.IsFresh(2), false, "180 s old")
+    T.eq(P.IsFresh(4), false, "never scanned")
+    T.eq(P.IsFresh(3), true, "scanned, nothing listed")
+  end,
+
+  fresh_seconds_setting = function(T)
+    local db = {}
+    local _, P = load(db)
+    T.eq(P.FreshSeconds(), 180)
+    P.SetFreshSeconds(300)
+    T.eq(db.freshSeconds, 300)
+    T.eq(P.FreshSeconds(), 300)
+    P.SetFreshSeconds(0)
+    P.SetAH(1, 100, 1, Mock.now)
+    T.eq(P.IsFresh(1), false, "0 always rescans")
+  end,
+
   set_db_creates_tables_and_separates_realms = function(T)
     local db = {}
     local _, P = load(db)

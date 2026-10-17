@@ -3,6 +3,7 @@ local addonName, ns = ...
 
 local floor = math.floor
 local STALE_AFTER = 86400
+local FRESH_DEFAULT = 180 -- seconds an AH price counts as just scanned
 
 ns.Prices = {}
 local Prices = ns.Prices
@@ -31,6 +32,22 @@ end
 
 function Prices.AllAH()
   return ah
+end
+
+-- How long a scanned price is fresh: an item scanned this recently is not
+-- searched again (Scan tracked, Search all, cached listings). 0: always search.
+function Prices.FreshSeconds()
+  return db and db.freshSeconds or FRESH_DEFAULT
+end
+
+function Prices.SetFreshSeconds(seconds)
+  db.freshSeconds = seconds
+end
+
+-- Scanned within the fresh window, whether or not anything was listed.
+function Prices.IsFresh(id)
+  local rec = ah[id]
+  return rec ~= nil and rec.t ~= nil and ns.Now() - rec.t < Prices.FreshSeconds()
 end
 
 function Prices.SetVendor(id, unit)

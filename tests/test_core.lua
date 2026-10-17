@@ -82,6 +82,25 @@ local function addForeignTab(n)
 end
 
 return {
+  fresh_command = function(T)
+    local _, Core = load()
+    Core.Slash("fresh 5")
+    T.eq(CraftProfitDB.freshSeconds, 300)
+    Core.Slash("fresh 0")
+    T.eq(CraftProfitDB.freshSeconds, 0)
+    Mock.chat = {}
+    Core.Slash("fresh 61")
+    T.ok(chatHas("/cp fresh <0-60>"), "usage for 61")
+    Mock.chat = {}
+    Core.Slash("fresh x")
+    T.ok(chatHas("/cp fresh <0-60>"), "usage for x")
+    T.eq(CraftProfitDB.freshSeconds, 0)
+    Core.Slash("fresh 3")
+    Mock.chat = {}
+    Core.Slash("fresh")
+    T.ok(chatHas("3 min"), "prints the current minutes")
+  end,
+
   login_initialises_defaults = function(T)
     local ns = load(nil)
     T.eq(CraftProfitDB.version, 1)

@@ -13,7 +13,6 @@ ns.Auctions = {}
 local Auctions = ns.Auctions
 
 local PAGE_SIZE = NUM_AUCTION_ITEMS_PER_PAGE or 50
-local CACHE_FRESH = 60   -- seconds a price check is good for
 local CANCEL_WAIT = 5    -- seconds to wait for the owner list after a cancel
 local MAILBOX = "Collect it from your mailbox first."
 
@@ -163,8 +162,8 @@ function Auctions.Selected()
   return selected
 end
 
--- Show an item's listings: the cache when it is younger than a minute, else a
--- price check. ok, or false and why ("busy": the item stays selected).
+-- Show an item's listings: the cache when it is younger than the fresh window
+-- (Prices.FreshSeconds), else a price check. ok, or false and why ("busy": the item stays selected).
 function Auctions.Select(id)
   local isNew = id ~= selected
   selected = id
@@ -173,7 +172,7 @@ function Auctions.Select(id)
   local ok, err = true
   if id then
     local rows, age = ns.Listings.Get(id)
-    if not (rows and age < CACHE_FRESH) then
+    if not (rows and age < ns.Prices.FreshSeconds()) then
       local g = groupById[id]
       local name = g and g.name or (GetItemInfo(id))
       if name then

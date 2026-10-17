@@ -147,7 +147,7 @@ local function onScanClick()
     ns.Scanner.Stop("stopped")
     return
   end
-  local ok, err = ns.Scanner.StartTargeted(ns.Recipes.ScanList())
+  local ok, err = ns.Scanner.StartTargeted(ns.Recipes.ScanList(), { skipFresh = true })
   if not ok and err == "empty" then UI.statusText:SetText(NOTHING_TRACKED) end
   UI.UpdateScanButtons()
 end

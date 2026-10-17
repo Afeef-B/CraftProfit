@@ -23,6 +23,43 @@ local CLOTH_ITEM = { id = CLOTH, name = "Frostweave Cloth" }
 local THREAD_ITEM = { id = THREAD, name = "Eternium Thread" }
 
 return {
+  scan_tracked_skips_fresh_items = function(T)
+    local ns, S, P = load()
+    local BOLT = 41510
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000), auction(THREAD, "Eternium Thread", 1, 300) }
+    P.SetAH(BOLT, 500, 1, Mock.now - 60)
+    T.eq(S.StartTargeted({ CLOTH_ITEM, { id = BOLT, name = "Bolt of Frostweave" }, THREAD_ITEM }, { skipFresh = true }), true)
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 2)
+    T.eq(Mock.queries[1][1], "Frostweave Cloth")
+    T.eq(Mock.queries[2][1], "Eternium Thread")
+    T.eq(S.statusText, "Scan done: 2 items (1 still fresh, skipped)")
+  end,
+
+  all_fresh_scans_nothing = function(T)
+    local _, S, P = load()
+    P.SetAH(CLOTH, 1000, 1, Mock.now)
+    P.SetAH(THREAD, 300, 1, Mock.now - 10)
+    P.SetAH(41510, nil, 0, Mock.now - 100)
+    local ok, err = S.StartTargeted({ CLOTH_ITEM, THREAD_ITEM, { id = 41510, name = "Bolt of Frostweave" } }, { skipFresh = true })
+    T.eq(ok, false)
+    T.eq(err, "fresh")
+    T.eq(S.IsBusy(), false)
+    S.Tick(0.1)
+    T.eq(#Mock.queries, 0)
+    T.eq(S.statusText:sub(1, #"Nothing to scan: all 3 items"), "Nothing to scan: all 3 items")
+    T.ok(S.statusText:find("last 3 min", 1, true), S.statusText)
+  end,
+
+  price_check_ignores_fresh_window = function(T)
+    local ns, S, P = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }
+    P.SetAH(CLOTH, 1000, 1, Mock.now - 10)
+    T.eq(S.PriceCheck(CLOTH_ITEM), true)
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1)
+  end,
+
   start_rejects_empty_and_busy = function(T)
     local _, S = load()
     local ok, err = S.StartTargeted({})

@@ -322,6 +322,23 @@ return {
     T.eq(ns.Scanner.IsBusy(), false)
   end,
 
+  select_reuses_listings_inside_fresh_window = function(T)
+    local ns, db = setup()
+    ns.Prices.SetFreshSeconds(300)
+    Mock.ah.auctions = { { id = BAG, name = BAG_NAME, count = 1, buyout = gold(420), seller = "Me" } }
+    Mock.owned = { bagAuction(gold(420)) }
+    readAll(ns)
+    cache(ns, BAG, { row("Me", gold(420)), row("Bob", gold(410)) })
+    Mock.now = Mock.now + 250
+    T.eq(ns.Auctions.Select(BAG), true)
+    T.eq(#Mock.queries, 0, "250 s old with a 5 minute window")
+    ns.Auctions.Select(nil)
+    Mock.now = Mock.now + 60
+    T.eq(ns.Auctions.Select(BAG), true)
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1, "310 s old")
+  end,
+
   select_uses_fresh_cache_or_checks = function(T)
     local ns = setup()
     Mock.ah.auctions = {
@@ -334,8 +351,8 @@ return {
     local changed = changes(ns)
     T.eq(ns.Auctions.Selected(), nil)
 
-    -- 59 s old: used as it is
-    Mock.now = Mock.now + 59
+    -- 179 s old: used as it is (the fresh window, 3 minutes by default)
+    Mock.now = Mock.now + 179
     T.eq(ns.Auctions.Select(BAG), true)
     T.eq(ns.Auctions.Selected(), BAG)
     T.eq(ns.Scanner.IsBusy(), false, "no price check")
@@ -346,7 +363,7 @@ return {
     T.eq(ns.Auctions.Select(BAG), true)
     T.eq(changed.n, 1)
 
-    -- 60 s old: checked again
+    -- 180 s old: checked again
     Mock.now = Mock.now + 1
     T.eq(ns.Auctions.Select(BAG), true)
     T.ok(ns.Scanner.IsBusy())
@@ -362,7 +379,7 @@ return {
     T.ok(ns.Scanner.IsBusy())
 
     -- the scanner is busy and the cache is old: the item stays selected
-    Mock.now = Mock.now + 100
+    Mock.now = Mock.now + 200
     local ok, err = ns.Auctions.Select(BAG)
     T.eq(ok, false)
     T.eq(err, "busy")

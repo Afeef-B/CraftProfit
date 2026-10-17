@@ -231,6 +231,7 @@ local HELP = {
   "/cp price <item> <price> - set your own price, e.g. 1.5 or 1g50s; 'clear' removes it",
   "/cp cut <percent> - AH cut (5 normally, 15 at neutral AHs)",
   "/cp outlier <percent> - a listing under this % of the next one is a mistake (1-99, default 50)",
+  "/cp fresh <minutes> - don't rescan items scanned this recently (0-60, default 3)",
   "/cp list - print profit for tracked crafts",
   "/cp reset prices - forget scanned AH prices for this realm and faction",
 }
@@ -242,10 +243,14 @@ function commands.scan()
     Util.Print("Open the Auction House first.")
     return
   end
-  local ok, err = ns.Scanner.StartTargeted(ns.Recipes.ScanList())
+  local ok, err = ns.Scanner.StartTargeted(ns.Recipes.ScanList(), { skipFresh = true })
   if not ok then
-    Util.Print(err == "busy" and "A scan is already running."
-      or "Nothing tracked yet. Tick \"Track\" on a recipe in your profession window.")
+    if err == "fresh" then
+      Util.Print(ns.Scanner.statusText)
+    else
+      Util.Print(err == "busy" and "A scan is already running."
+        or "Nothing tracked yet. Tick \"Track\" on a recipe in your profession window.")
+    end
   end
 end
 
@@ -306,6 +311,24 @@ function commands.outlier(rest)
   ns.db.outlierRatio = percent / 100
   Util.Print("Mistake listings: a listing under " .. percent .. "% of the next one. "
     .. "Applies to the next price check.")
+end
+
+-- Items scanned this recently are not searched again (Scan tracked, Search
+-- all, cached listings); 0 always searches.
+function commands.fresh(rest)
+  if rest == "" then
+    Util.Print("Items scanned in the last " .. floor(ns.Prices.FreshSeconds() / 60)
+      .. " min are not scanned again. Change it with /cp fresh <0-60>.")
+    return
+  end
+  local minutes = tonumber(rest)
+  if not minutes or minutes < 0 or minutes > 60 or minutes ~= floor(minutes) then
+    Util.Print("Usage: /cp fresh <0-60> (minutes; 0 always rescans)")
+    return
+  end
+  ns.Prices.SetFreshSeconds(minutes * 60)
+  Util.Print(minutes == 0 and "Every scan searches again now."
+    or ("Items scanned in the last " .. minutes .. " min are not scanned again."))
 end
 
 function commands.diag()

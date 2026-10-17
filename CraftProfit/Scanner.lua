@@ -63,11 +63,26 @@ end
 
 -- opts.collect: also keep every listing of the item (count, buyout, seller,
 -- page, index) and hand the rows to ns.Listings.
+-- opts.skipFresh: leave out items scanned within the fresh window
+-- (Prices.IsFresh); "fresh" when that leaves nothing.
 function Scanner.StartTargeted(items, opts)
   if not ahOpen then return false, "closed" end
   if state ~= "idle" then return false, "busy" end
   if not items or #items == 0 then return false, "empty" end
-  job = { items = items, index = 1, page = 0, n = 0, retries = 0 }
+  local skipped = 0
+  if opts and opts.skipFresh then
+    local keep = {}
+    for _, item in ipairs(items) do
+      if ns.Prices.IsFresh(item.id) then skipped = skipped + 1 else keep[#keep + 1] = item end
+    end
+    if #keep == 0 then
+      setStatus("Nothing to scan: all " .. skipped .. " items were scanned in the last "
+        .. floor(ns.Prices.FreshSeconds() / 60) .. " min")
+      return false, "fresh"
+    end
+    items = keep
+  end
+  job = { items = items, index = 1, page = 0, n = 0, retries = 0, skipped = skipped }
   if opts and opts.collect then
     job.collect = true
     job.raw = {}
@@ -173,9 +188,10 @@ local function nextItem()
   job.filterSet, job.class, job.subclass, job.restarted = nil, nil, nil, nil
   if job.collect then job.raw = {} end
   if job.index > #job.items then
-    local count = #job.items
+    local count, skipped = #job.items, job.skipped or 0
     state, job = "idle", nil
-    setStatus("Scan done: " .. count .. " items")
+    setStatus("Scan done: " .. count .. " items"
+      .. (skipped > 0 and (" (" .. skipped .. " still fresh, skipped)") or ""))
     ns.Fire("PRICES_CHANGED")
     ns.Fire("SCAN_FINISHED")
   else

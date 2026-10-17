@@ -868,7 +868,7 @@ return {
     T.eq(#Mock.queries, 3, "only the dust")
 
     -- the player picked something else meanwhile: no search for the old pick
-    Mock.now = Mock.now + 120
+    Mock.now = Mock.now + 200
     cache(ns, CLOTH, { row("Me", gold(30)), row("Bob", gold(40)) })
     T.ok(ns.Scanner.PriceCheck({ id = DUST, name = DUST_NAME }))
     click(rowOf(ns, BAG_NAME))                     -- the cache is old: busy
