@@ -213,6 +213,37 @@ function Listings.MarkUnderYou(rows)
   return rows
 end
 
+-- Identical listings (same stack size, buyout and owner side) as one line:
+-- { key, count, buyout, unit, mine, outlier, underYou, seller, sellers, rows },
+-- in the order of each group's first row. outlier, underYou and seller come
+-- from that row; sellers counts the distinct names. skip(row) true leaves a
+-- row out (e.g. one bought a moment ago).
+function Listings.Group(rows, skip)
+  local groups, byKey, names = {}, {}, {}
+  for i = 1, #rows do
+    local row = rows[i]
+    if not (skip and skip(row)) then
+      local key = row.count .. ":" .. row.buyout .. ":" .. (row.mine and 1 or 0)
+      local group = byKey[key]
+      if not group then
+        group = {
+          key = key, count = row.count, buyout = row.buyout, unit = row.unit, mine = row.mine,
+          outlier = row.outlier, underYou = row.underYou, seller = row.seller, sellers = 0, rows = {},
+        }
+        byKey[key] = group
+        names[key] = {}
+        groups[#groups + 1] = group
+      end
+      group.rows[#group.rows + 1] = row
+      if row.seller and not names[key][row.seller] then
+        names[key][row.seller] = true
+        group.sellers = group.sellers + 1
+      end
+    end
+  end
+  return groups
+end
+
 function Listings.Store(id, rows)
   Listings.cache[id] = { t = ns.Now(), rows = rows }
   ns.Fire("LISTINGS_UPDATED", id)

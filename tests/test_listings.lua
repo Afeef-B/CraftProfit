@@ -27,6 +27,52 @@ local function rowsOf(L, list, mineSet, ratio)
 end
 
 return {
+  group_merges_identical_rows = function(T)
+    local _, L = load()
+    local rows = L.Normalize({
+      raw(5, g(0, 50), "D"),
+      raw(20, g(1, 80), "A"), raw(20, g(1, 80), "B"), raw(20, g(1, 80), "C"),
+    }, L.MineSet(), L.Ratio())
+    local groups = L.Group(rows)
+    T.eq(#groups, 2)
+    local first, second = groups[1], groups[2]
+    T.eq(first.count, 20); T.eq(first.buyout, g(1, 80)); T.eq(first.unit, 900)
+    T.eq(#first.rows, 3); T.eq(first.seller, "A"); T.eq(first.sellers, 3)
+    T.eq(first.mine, false)
+    T.eq(first.key, "20:" .. g(1, 80) .. ":0")
+    T.eq(second.count, 5); T.eq(#second.rows, 1); T.eq(second.unit, 1000)
+  end,
+
+  group_keeps_mine_apart = function(T)
+    local _, L = load()
+    local rows = L.Normalize({ raw(20, g(1, 80), "Me"), raw(20, g(1, 80), "Bob") }, L.MineSet(), L.Ratio())
+    local groups = L.Group(rows)
+    T.eq(#groups, 2)
+    T.ok(groups[1].key ~= groups[2].key)
+    local mine = 0
+    for _, group in ipairs(groups) do if group.mine then mine = mine + 1 end end
+    T.eq(mine, 1)
+  end,
+
+  group_skip_leaves_rows_out = function(T)
+    local _, L = load()
+    local rows = L.Normalize({ raw(20, g(1, 80), "A"), raw(20, g(1, 80), "B"), raw(20, g(1, 80), "C") },
+      L.MineSet(), L.Ratio())
+    local gone = rows[2]
+    local groups = L.Group(rows, function(row) return row == gone end)
+    T.eq(#groups[1].rows, 2)
+    T.eq(groups[1].sellers, 2)
+    T.eq(#L.Group(rows, function() return true end), 0)
+  end,
+
+  group_same_seller_counts_once = function(T)
+    local _, L = load()
+    local rows = L.Normalize({ raw(20, g(1, 80), "A"), raw(20, g(1, 80), "A") }, L.MineSet(), L.Ratio())
+    local groups = L.Group(rows)
+    T.eq(#groups[1].rows, 2)
+    T.eq(groups[1].sellers, 1)
+  end,
+
   normalize_units_mine_alts_and_sort = function(T)
     local _, L = load()
     local mineSet = { Me = true, Twink = true }
