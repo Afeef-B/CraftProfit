@@ -90,14 +90,15 @@ function Lists.All()
   return all
 end
 
--- ok, or false and "empty" | "exists".
+-- true and the name as stored (trimmed, at most 40 characters), or false and
+-- "empty" | "exists".
 function Lists.Create(name)
   name = trim(name):sub(1, MAX_NAME)
   if name == "" then return false, "empty" end
   if find(name) then return false, "exists" end
   db.lists[#db.lists + 1] = { name = name, items = {} }
   changed()
-  return true
+  return true, name
 end
 
 function Lists.Delete(name)

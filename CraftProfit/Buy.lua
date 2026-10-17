@@ -3,8 +3,8 @@
 -- (the item view), and a shopping list shows its items with the last price
 -- seen (the list view). The cheapest listing is bought one click at a time
 -- until the player has as many as they need. Every purchase goes through
--- ns.Buyer and starts from a button OnClick (Buy.BuyCheapest, Buy.BuyGroup,
--- Buy.BuyRow); events only move the countdown along.
+-- ns.Buyer and starts from a button OnClick (Buy.BuyCheapest, Buy.BuyGroup);
+-- events only move the countdown along.
 local addonName, ns = ...
 
 local floor, max = math.floor, math.max
@@ -104,10 +104,10 @@ function Buy.Search(text)
   return search(text)
 end
 
--- results ({ id, name, texture, unit, auctions, quantity, t } by name) and
--- whether the search stopped at its page cap.
+-- results ({ id, name, texture, unit, auctions, quantity, t } by name),
+-- whether the search stopped at its page cap, and whether it has answered.
 function Buy.Results()
-  return results or {}, capped
+  return results or {}, capped, results ~= nil
 end
 
 -- Show item id's listings. `needN` sets the need. Opened from the results or
@@ -266,11 +266,6 @@ end
 function Buy.BuyGroup(group)
   local row = Buy.GroupPick(group)
   if not row then return false, "Nothing to buy." end
-  return buyRow(row)
-end
-
--- Buy exactly `row` (the one the player selected). Call only from OnClick.
-function Buy.BuyRow(row)
   return buyRow(row)
 end
 

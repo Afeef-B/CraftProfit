@@ -100,7 +100,7 @@ return {
   -- click handlers in FlipUI / BuyUI.
   purchase_callers_are_pinned = function(T)
     local callers = {
-      ["Buyer.Buy"] = {}, ["Buy.BuyCheapest"] = {}, ["Buy.BuyRow"] = {}, ["Buy.BuyGroup"] = {}, ["Flip.Buy"] = {},
+      ["Buyer.Buy"] = {}, ["Buy.BuyCheapest"] = {}, ["Buy.BuyGroup"] = {}, ["Flip.Buy"] = {},
     }
     for _, path in ipairs(addonFiles()) do
       local src = code(read(path))
@@ -122,17 +122,16 @@ return {
     only("Buyer.Buy", "Buy.lua=1 Flip.lua=1")
     only("Flip.Buy", "Flip.lua=1")
     only("Buy.BuyCheapest", "BuyUI.lua=1")
-    only("Buy.BuyRow", "BuyUI.lua=1")
-    only("Buy.BuyGroup", "")
+    only("Buy.BuyGroup", "BuyUI.lua=1")
 
-    -- in Buy.lua the one Buyer.Buy sits in buyRow, which only the three buy
+    -- in Buy.lua the one Buyer.Buy sits in buyRow, which only the two buy
     -- functions call
     local buy = code(read(Mock.root .. "Buy.lua"))
     local body = buy:match("local function buyRow%(row%)(.-)\nend")
     T.ok(body and body:find("Buyer.Buy(", 1, true), "Buyer.Buy inside buyRow")
     local _, rowCalls = buy:gsub("buyRow%(", "")
-    T.eq(rowCalls - 1, 3, "buyRow: BuyCheapest, BuyGroup, BuyRow")
-    for _, fn in ipairs({ "BuyCheapest", "BuyGroup", "BuyRow" }) do
+    T.eq(rowCalls - 1, 2, "buyRow: BuyCheapest, BuyGroup")
+    for _, fn in ipairs({ "BuyCheapest", "BuyGroup" }) do
       local f = buy:match("function Buy%." .. fn .. "%(.-%)(.-)\nend")
       T.ok(f and f:find("buyRow(", 1, true), fn .. " goes through buyRow")
     end
@@ -140,13 +139,13 @@ return {
     -- and in BuyUI they sit inside the click handlers wired to the buttons
     local ui = code(read(Mock.root .. "BuyUI.lua"))
     local cheapest = ui:match("local function onBuyCheapest%(%)(.-)\nend")
-    local row = ui:match("local function onBuyRow%(%)(.-)\nend")
+    local one = ui:match("local function onBuyOne%(%)(.-)\nend")
     T.ok(cheapest and cheapest:find("Buy.BuyCheapest(", 1, true), "BuyCheapest in onBuyCheapest")
-    T.ok(row and row:find("Buy.BuyRow(", 1, true), "BuyRow in onBuyRow")
+    T.ok(one and one:find("Buy.BuyGroup(", 1, true), "BuyGroup in onBuyOne")
     local raw = read(Mock.root .. "BuyUI.lua")
     T.ok(raw:find('SetScript("OnClick", onBuyCheapest)', 1, true), "wired to a click")
-    T.ok(raw:find('SetScript("OnClick", onBuyRow)', 1, true), "wired to a click")
-    for _, handler in ipairs({ "onBuyCheapest", "onBuyRow" }) do
+    T.ok(raw:find('SetScript("OnClick", onBuyOne)', 1, true), "wired to a click")
+    for _, handler in ipairs({ "onBuyCheapest", "onBuyOne" }) do
       local _, calls = uses(ui, handler)
       local _, defs = ui:gsub("local function " .. handler .. "%(", "")
       T.eq(calls - defs, 0, handler .. " is only passed to SetScript, never called by other code")

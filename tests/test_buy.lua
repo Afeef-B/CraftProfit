@@ -264,9 +264,13 @@ return {
     })
     searchCloth(ns)
     T.eq(ns.Buy.Pick().seller, "Bob", "mine and my alt's are skipped")
-    local ok, msg = ns.Buy.BuyRow(rowOf(ns, "Me"))
-    T.ok(not ok)
-    T.eq(msg, "That's your own listing.")
+    for _, group in ipairs(ns.Buy.Groups()) do
+      if group.mine then
+        local ok, msg = ns.Buy.BuyGroup(group)
+        T.ok(not ok)
+        T.eq(msg, "Nothing to buy.")
+      end
+    end
     T.eq(#Mock.bought, 0)
   end,
 

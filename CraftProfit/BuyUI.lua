@@ -1,45 +1,296 @@
--- The "CP Buy" page: search box and materials list on the left, the item's
--- listings (cheapest per unit first) on the right, "Buy cheapest" and "Buy
--- this" buttons. It only draws ns.Buy and hands the player's input to it; a
--- purchase starts only from a Buy button's OnClick, never from an event.
+-- The "CP Buy" page, full width: a search bar, one table for the view
+-- ns.Buy shows (a search's results, an item's grouped listings, or a
+-- shopping list), that view's buttons and the status line. It only draws
+-- ns.Buy and hands the player's input to it; a purchase starts only from a
+-- Buy button's OnClick (Buy cheapest, Buy one), never from an event.
 local addonName, ns = ...
 
+local Util = ns.Util
 local Style = ns.Style
 local Buy = ns.Buy
 
 ns.BuyUI = {}
 local BuyUI = ns.BuyUI
 
-local BAD, GOOD = "|cffff4040", "|cff40ff40"
-local MATERIAL_LINES = 6
+local BAD, GOOD, GREEN, RED = "|cffff4040", "|cff40ff40", "|cff40ff40", "|cffff4040"
+local NO_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local ROWS = 11
 
-local P, LEFT_W, RIGHT_X = Style.PAD, Style.LEFT_W, Style.PAD + Style.LEFT_W + Style.GAP
+-- Where each strip sits on the page: x, y from the top-left, width, height.
+local P = Style.PAD
+local W = Style.PAGE_W - 2 * P
 local LAYOUT = {
-  search    = { x = P, y = 8,   w = LEFT_W, h = 56 },
-  materials = { x = P, y = 70,  w = LEFT_W, h = 50 + MATERIAL_LINES * Style.ROW_H },
-  buy       = { x = P, y = 236, w = LEFT_W, h = 64 },
-  listings  = { x = RIGHT_X, y = 8, w = Style.RIGHT_W, h = 20 + 18 + Style.VISIBLE * Style.ROW_H },
-  buyrow    = { x = RIGHT_X, y = 268, w = Style.RIGHT_W, h = 24 },
+  bar     = { x = P, y = 8,   w = W, h = 28 },
+  view    = { x = P, y = 40,  w = W, h = 20 + 18 + ROWS * Style.ROW_H },
+  actions = { x = P, y = 280, w = W, h = 24 },
 }
 BuyUI.layout = LAYOUT
 
+-- Columns of the three tables (x, width; the scroll bar starts at W - 24).
+local RESULT_COLUMNS = {
+  { key = "name",     x = 20,  width = 300, justify = "LEFT",  title = "Item" },
+  { key = "each",     x = 330, width = 110, justify = "RIGHT", title = "Each" },
+  { key = "auctions", x = 450, width = 70,  justify = "RIGHT", title = "Auctions" },
+  { key = "qty",      x = 530, width = 70,  justify = "RIGHT", title = "Qty" },
+  { key = "seen",     x = 610, width = 60,  justify = "RIGHT", title = "Seen" },
+}
+local ITEM_COLUMNS = {
+  { key = "stack",    x = 0,   width = 50,  justify = "RIGHT", title = "Stack" },
+  { key = "auctions", x = 60,  width = 70,  justify = "RIGHT", title = "Auctions" },
+  { key = "each",     x = 140, width = 120, justify = "RIGHT", title = "Each" },
+  { key = "total",    x = 270, width = 120, justify = "RIGHT", title = "Per stack" },
+  { key = "seller",   x = 400, width = 160, justify = "LEFT",  title = "Seller" },
+  { key = "note",     x = 570, width = 120, justify = "LEFT" },
+}
+local LIST_COLUMNS = {
+  { key = "name",     x = 20,  width = 300, justify = "LEFT",  title = "Item" },
+  { key = "have",     x = 330, width = 100, justify = "RIGHT", title = "Have" },
+  { key = "cheapest", x = 440, width = 120, justify = "RIGHT", title = "Cheapest" },
+  { key = "seen",     x = 570, width = 80,  justify = "RIGHT", title = "Seen" },
+}
+
 local built = false
-local writing = false -- the page is writing into its own Need box: not the player typing
-local recipeId     -- the recipe the materials list is for
-local selected     -- the row the player clicked
-local shownId      -- the item the table last drew
-local drawnStatus  -- Buy.Status() as last drawn: a reply on the line stays until it changes
+local writing = false  -- the page is writing into its own boxes: not the player typing
+local selectedKey      -- the group the player clicked (Listings.Group key)
+local drawnView        -- the view (and its item or list) the tables last drew
+local drawnStatus      -- Buy.Status() as last drawn: a reply on the line stays until it changes
+local searchedText = "" -- what the results are for
 
-local function place(frame, page, r)
-  frame:SetPoint("TOPLEFT", page, "TOPLEFT", r.x, -r.y)
+local function setEnabled(button, on)
+  if on then button:Enable() else button:Disable() end
 end
 
-local function panel(page, key, name, title)
-  local r = LAYOUT[key]
-  local frame = Style.Panel(page, name, title, r.w, r.h)
-  place(frame, page, r)
-  return frame
+local function setShown(frames, on)
+  for _, frame in ipairs(frames) do
+    if on then frame:Show() else frame:Hide() end
+  end
 end
+
+local function trim(text)
+  return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- PAGE_STATUS / PAGE_ERROR carry no page id: shown only while this page is.
+-- With a need set the count stays in view after the reply.
+local function showMessage(text)
+  if not built or not ns.Tabs.IsShown("buy") then return end
+  if Buy.Target() and text ~= "" then text = text .. " - " .. Buy.Status() end
+  BuyUI.status:SetText(text)
+end
+
+local function selectedGroup()
+  if not selectedKey then return nil end
+  for _, group in ipairs(Buy.Groups()) do
+    if group.key == selectedKey then return group end
+  end
+end
+
+local function ownListName()
+  return Buy.View() == "list" and (Buy.ListKey() or ""):match("^own:(.+)$")
+end
+
+-- Clicks: the only places that buy are onBuyCheapest and onBuyOne.
+
+local function onSearch()
+  selectedKey = nil
+  searchedText = trim(BuyUI.search:GetText())
+  Buy.Search(BuyUI.search:GetText())
+  BuyUI.search:ClearFocus()
+  BuyUI.Update()
+end
+
+local function onBuyCheapest()
+  Buy.BuyCheapest()
+  BuyUI.Update()
+end
+
+local function onBuyOne()
+  local group = selectedGroup()
+  if group and Buy.GroupPick(group) then Buy.BuyGroup(group) end
+  BuyUI.Update()
+end
+
+local function onBack()
+  selectedKey = nil
+  Buy.Back()
+  BuyUI.Update()
+end
+
+local function onResultClick(result)
+  selectedKey = nil
+  Buy.OpenItem(result.id, result.name)
+  BuyUI.Update()
+end
+
+local function onGroupClick(group)
+  selectedKey = group.key
+  BuyUI.Update()
+end
+
+-- Left: open the item. Right, on one of the player's lists: take it off.
+local function onListClick(line, button)
+  if button == "RightButton" then
+    local name = ownListName()
+    if name then ns.Lists.Remove(name, line.id) end
+    return
+  end
+  selectedKey = nil
+  Buy.OpenLine(line)
+  BuyUI.Update()
+end
+
+local function onSearchAll()
+  Buy.SearchAll()
+  BuyUI.Update()
+end
+
+local function openList(key)
+  selectedKey = nil
+  Buy.OpenList(key)
+  BuyUI.Update()
+end
+
+local function showMenu(anchor, menu)
+  BuyUI.menuFrame = BuyUI.menuFrame or CreateFrame("Frame", "CraftProfitBuyMenu", UIParent, "UIDropDownMenuTemplate")
+  EasyMenu(menu, BuyUI.menuFrame, anchor, 0, 0, "MENU")
+end
+
+-- data: { id, name } of an item to put on the new list, or nil.
+local function newList(data)
+  StaticPopup_Show("CRAFTPROFIT_NEW_LIST", nil, nil, data)
+end
+
+local function addTo(listName, id, name)
+  local ok, err = ns.Lists.Add(listName, id, name)
+  if ok then
+    showMessage("Added " .. name .. " to " .. listName .. ".")
+  elseif err == "already" then
+    showMessage(name .. " is already on " .. listName .. ".")
+  end
+end
+
+-- The new list from the popup, with the item it was opened for, then shown.
+local function createList(text, data)
+  local ok, err = ns.Lists.Create(text)
+  if not ok then
+    showMessage(err == "exists" and ("There is already a list called " .. trim(text) .. ".")
+      or "Type a name for the list.")
+    return
+  end
+  local name = err -- Create's second result: the name as stored
+  if data then ns.Lists.Add(name, data.id, data.name) end
+  openList("own:" .. name)
+end
+
+local function onLists(self)
+  local menu, all = {}, ns.Lists.All()
+  local shown = Buy.View() == "list" and Buy.ListKey()
+  for _, list in ipairs(all) do
+    local key = list.key
+    menu[#menu + 1] = { text = list.name, checked = key == shown, func = function() openList(key) end }
+  end
+  menu[#menu + 1] = { text = "New list...", notCheckable = true, func = function() newList(nil) end }
+  for _, list in ipairs(all) do
+    if not list.auto then
+      local name = list.name
+      menu[#menu + 1] = { text = "Delete " .. name, notCheckable = true, func = function() ns.Lists.Delete(name) end }
+    end
+  end
+  showMenu(self, menu)
+end
+
+local function onToList(self)
+  local id, name = Buy.Current()
+  if Buy.View() ~= "item" or not id then return end
+  local menu = {}
+  for _, list in ipairs(ns.Lists.All()) do
+    if not list.auto then
+      local listName = list.name
+      menu[#menu + 1] = { text = listName, notCheckable = true, func = function() addTo(listName, id, name) end }
+    end
+  end
+  menu[#menu + 1] = { text = "New list...", notCheckable = true, func = function() newList({ id = id, name = name }) end }
+  showMenu(self, menu)
+end
+
+StaticPopupDialogs["CRAFTPROFIT_NEW_LIST"] = {
+  text = "Name of the new shopping list:",
+  button1 = ACCEPT,
+  button2 = CANCEL,
+  hasEditBox = 1,
+  maxLetters = 40,
+  OnShow = function(self) _G[self:GetName() .. "EditBox"]:SetFocus() end,
+  OnAccept = function(self, data) createList(_G[self:GetName() .. "EditBox"]:GetText(), data) end,
+  EditBoxOnEnterPressed = function(self)
+    local dialog = self:GetParent()
+    createList(self:GetText(), dialog.data)
+    dialog:Hide()
+  end,
+  EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+  timeout = 0,
+  whileDead = 1,
+  hideOnEscape = 1,
+}
+
+-- Lines of the three tables
+
+local function fillResult(_, line, result)
+  line.icon:SetTexture(result.texture or NO_ICON)
+  line.name:SetText(result.name)
+  line.each:SetText(Style.Money(result.unit))
+  line.auctions:SetText(tostring(result.auctions))
+  line.qty:SetText(tostring(result.quantity))
+  line.seen:SetText(Util.FormatAge(ns.Now() - result.t))
+end
+
+-- "YOU" (or "YOU (<alt>)"), else the first seller; "+2" for two more.
+local function groupSeller(group)
+  local seller = group.seller
+  local text
+  if not seller then
+    text = "?"
+  elseif group.mine then
+    text = seller == UnitName("player") and "YOU" or ("YOU (" .. seller .. ")")
+  else
+    text = seller
+  end
+  if group.sellers > 1 then text = text .. " +" .. (group.sellers - 1) end
+  return text
+end
+
+local function fillGroup(_, line, group)
+  local priced = (group.unit or 0) > 0
+  line.stack:SetText(tostring(group.count))
+  line.auctions:SetText(tostring(#group.rows))
+  line.each:SetText(priced and Style.Money(group.unit) or "bid only")
+  line.total:SetText(priced and Style.Money(group.buyout) or "-")
+  line.seller:SetText(groupSeller(group))
+  if group.mine then line.seller:SetTextColor(0.25, 1, 0.25) else line.seller:SetTextColor(1, 1, 1) end
+  if group.underYou then
+    line.note:SetText(RED .. Util.ICON_WARN .. " under you|r")
+  elseif group.outlier then
+    line.note:SetText(GREEN .. "deal|r")
+  else
+    line.note:SetText("")
+  end
+end
+
+local function fillListLine(_, line, item)
+  line.icon:SetTexture(select(10, GetItemInfo(item.id)) or NO_ICON)
+  line.name:SetText(item.name)
+  if item.need then
+    local color = item.have >= item.need and GOOD or "|cffffffff"
+    line.have:SetText(color .. item.have .. "/" .. item.need .. "|r")
+  else
+    line.have:SetText(tostring(item.have))
+  end
+  line.cheapest:SetText(Style.Money(item.unit))
+  line.seen:SetText(item.age and Util.FormatAge(item.age) or "-")
+end
+
+local function groupKey(group) return group.key end
+
+-- Building
 
 local function numberBox(parent, name, width, x, y)
   local box = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
@@ -53,118 +304,50 @@ local function numberBox(parent, name, width, x, y)
   return box
 end
 
-local function buyable(row)
-  return row and not row.mine and row.seller and (row.buyout or 0) > 0 and not ns.Buyer.IsBought(row)
+local function barButton(page, name, text, x, onClick)
+  local button = Style.Button(page, name, text, 120)
+  button:SetPoint("TOPLEFT", page, "TOPLEFT", x, -(LAYOUT.bar.y + 2))
+  button:SetScript("OnClick", onClick)
+  return button
 end
 
--- Clicks: the only places that buy.
-
-local function onSearch()
-  selected = nil
-  Buy.Search(BuyUI.search:GetText())
-  BuyUI.search:ClearFocus()
-  BuyUI.Update()
-end
-
-local function onBuyCheapest()
-  Buy.BuyCheapest()
-  BuyUI.Update()
-end
-
-local function onBuyRow()
-  if buyable(selected) then Buy.BuyRow(selected) end
-  BuyUI.Update()
-end
-
-local function onMaterial(self)
-  local m = self.material
-  if not m then return end
-  selected = nil
-  Buy.SearchItem(m.id, m.name)
-  Buy.SetNeed(math.max(0, m.need - m.have)) -- 0: you have enough
-  BuyUI.Update()
-end
-
-local function chooseRecipe(id)
-  recipeId = id
-  BuyUI.Update()
-end
-
-local function onMaterialsFor(self)
-  local menu = {}
-  for _, id in ipairs(ns.Recipes.TrackedIDs()) do
-    local recipe = ns.Recipes.Get(id)
-    if recipe then
-      menu[#menu + 1] = { text = recipe.name, checked = id == recipeId, func = function() chooseRecipe(id) end }
-    end
-  end
-  if #menu == 0 then
-    menu[1] = { text = "Track a recipe in your profession window first", notCheckable = true, disabled = true }
-  end
-  BuyUI.menuFrame = BuyUI.menuFrame or CreateFrame("Frame", "CraftProfitBuyMenu", UIParent, "UIDropDownMenuTemplate")
-  EasyMenu(menu, BuyUI.menuFrame, self, 0, 0, "MENU")
-end
-
--- Building
-
-local function createSearch(page)
-  local box = panel(page, "search", "CraftProfitBuySearchPanel", "Search")
-  local edit = CreateFrame("EditBox", "CraftProfitBuySearch", box, "InputBoxTemplate")
-  edit:SetWidth(220)
+local function createBar(page)
+  local edit = CreateFrame("EditBox", "CraftProfitBuySearch", page, "InputBoxTemplate")
+  edit:SetWidth(250)
   edit:SetHeight(20)
-  edit:SetPoint("TOPLEFT", box, "TOPLEFT", 14, -26)
+  edit:SetPoint("TOPLEFT", page, "TOPLEFT", 14, -(LAYOUT.bar.y + 4))
   edit:SetAutoFocus(false)
   edit:SetScript("OnEnterPressed", onSearch)
   BuyUI.search = edit
-  local go = Style.Button(box, "CraftProfitBuySearchButton", "Search", 120)
-  go:SetPoint("TOPLEFT", box, "TOPLEFT", 246, -24)
-  go:SetScript("OnClick", onSearch)
+  barButton(page, "CraftProfitBuySearchButton", "Search", 272, onSearch)
+  BuyUI.lists = barButton(page, "CraftProfitBuyLists", "Lists v", 400, onLists)
+  BuyUI.toList = barButton(page, "CraftProfitBuyToList", "+ To list", 528, onToList)
+  BuyUI.back = barButton(page, "CraftProfitBuyBack", "< Back", 656, onBack)
 end
 
-local function createMaterials(page)
-  local box = panel(page, "materials", "CraftProfitBuyMaterialsPanel", "Materials")
-  local pick = Style.Button(box, "CraftProfitBuyMaterialsFor", "", 240)
-  pick:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -22)
-  pick:SetScript("OnClick", onMaterialsFor)
-  BuyUI.materialsFor = pick
-  -- The button's own label has no width limit; this one is cut to the button.
-  local label = Style.Text(pick, "title")
-  label:SetPoint("CENTER", pick, "CENTER", 0, 1)
-  label:SetWidth(pick:GetWidth() - 16)
-  label:SetHeight(14)
-  label:SetJustifyH("CENTER")
-  label:SetText("Materials for: pick a recipe")
-  BuyUI.materialsLabel = label
-  local crafts = Style.Text(box, "label")
-  crafts:SetPoint("TOPLEFT", box, "TOPLEFT", 260, -27)
-  crafts:SetText("Crafts")
-  BuyUI.crafts = numberBox(box, "CraftProfitBuyCrafts", 40, 310, -22)
-  BuyUI.crafts:SetText("1")
-  BuyUI.crafts:SetScript("OnTextChanged", function() BuyUI.Update() end)
+local function createTable(page, name, columns, icon, fill, onClick, empty, keyOf)
+  local tbl = ns.ListingsUI.CreateTable(page, name, {
+    width = LAYOUT.view.w, visible = ROWS, columns = columns, icon = icon,
+    fill = fill, onClick = onClick, empty = empty, keyOf = keyOf,
+  })
+  tbl.frame:SetPoint("TOPLEFT", page, "TOPLEFT", LAYOUT.view.x, -LAYOUT.view.y)
+  tbl:Hide()
+  return tbl
+end
 
-  BuyUI.materials = {}
-  for i = 1, MATERIAL_LINES do
-    local line = CreateFrame("Button", nil, box)
-    line:SetWidth(LEFT_W - 20)
-    line:SetHeight(Style.ROW_H)
-    line:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -50 - (i - 1) * Style.ROW_H)
-    line:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-    line.text = Style.Text(line, "value")
-    line.text:SetWidth(LEFT_W - 24)
-    line.text:SetHeight(Style.ROW_H)
-    line.text:SetPoint("LEFT", line, "LEFT", 2, 0)
-    line:SetScript("OnClick", onMaterial)
-    line:Hide()
-    BuyUI.materials[i] = line
+local function createActions(page)
+  local r = LAYOUT.actions
+  local y = -r.y
+  local function label(text, x)
+    local fs = Style.Text(page, "label")
+    fs:SetPoint("TOPLEFT", page, "TOPLEFT", r.x + x, y - 5)
+    fs:SetText(text)
+    return fs
   end
-end
 
-local function createBuy(page)
-  local box = panel(page, "buy", "CraftProfitBuyPanel", "Buy")
-  local label = Style.Text(box, "label")
-  label:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -30)
-  label:SetText("Need")
-  BuyUI.need = numberBox(box, "CraftProfitBuyNeed", 50, 52, -26)
+  -- the item view
+  BuyUI.needLabel = label("Need", 6)
+  BuyUI.need = numberBox(page, "CraftProfitBuyNeed", 50, r.x + 46, y - 2)
   BuyUI.need:SetScript("OnTextChanged", function(self)
     if writing then return end
     local n = tonumber(self:GetText())
@@ -172,11 +355,36 @@ local function createBuy(page)
     -- Only a different need starts the count over (the box may echo its own text).
     if n ~= Buy.Target() then Buy.SetNeed(n) end
   end)
-  local cheapest = Style.Button(box, "CraftProfitBuyCheapest", "Search an item first", 260, true)
-  cheapest:SetPoint("TOPLEFT", box, "TOPLEFT", 110, -24)
+  local cheapest = Style.Button(page, "CraftProfitBuyCheapest", "Search an item first", 260, true)
+  cheapest:SetPoint("TOPLEFT", page, "TOPLEFT", r.x + 106, y)
   -- One of the two places a purchase starts.
   cheapest:SetScript("OnClick", onBuyCheapest)
   BuyUI.cheapest = cheapest
+  local one = Style.Button(page, "CraftProfitBuyOne", "Buy one", 200)
+  one:SetPoint("TOPLEFT", page, "TOPLEFT", r.x + 374, y)
+  -- The other place a purchase starts.
+  one:SetScript("OnClick", onBuyOne)
+  BuyUI.buyOne = one
+
+  -- the list view
+  BuyUI.craftsLabel = label("Crafts", 6)
+  BuyUI.crafts = numberBox(page, "CraftProfitBuyCrafts", 40, r.x + 52, y - 2)
+  BuyUI.crafts:SetText("1")
+  BuyUI.crafts:SetScript("OnTextChanged", function(self)
+    if writing then return end
+    Buy.SetCrafts(self:GetText())
+  end)
+  BuyUI.searchAll = Style.Button(page, "CraftProfitBuySearchAll", "Search all", 140)
+  BuyUI.searchAll:SetPoint("TOPLEFT", page, "TOPLEFT", r.x + 106, y)
+  BuyUI.searchAll:SetScript("OnClick", onSearchAll)
+
+  -- the results view, or nothing shown yet
+  BuyUI.hint = Style.Text(page, "label")
+  BuyUI.hint:SetPoint("TOPLEFT", page, "TOPLEFT", r.x + 6, y - 5)
+  BuyUI.hint:SetWidth(r.w - 12)
+
+  BuyUI.itemActions = { BuyUI.needLabel, BuyUI.need, cheapest, one }
+  BuyUI.listActions = { BuyUI.craftsLabel, BuyUI.crafts, BuyUI.searchAll }
 end
 
 function BuyUI.Build()
@@ -184,71 +392,64 @@ function BuyUI.Build()
   if built or not page then return end
   built = true
 
-  createSearch(page)
-  createMaterials(page)
-  createBuy(page)
+  createBar(page)
+  BuyUI.results = createTable(page, "CraftProfitBuyResults", RESULT_COLUMNS, true, fillResult,
+    onResultClick, "No items found.")
+  BuyUI.item = createTable(page, "CraftProfitBuyItem", ITEM_COLUMNS, false, fillGroup,
+    onGroupClick, "No listings", groupKey)
+  BuyUI.list = createTable(page, "CraftProfitBuyList", LIST_COLUMNS, true, fillListLine,
+    onListClick, "Nothing on this list yet. Use + To list on an item.")
+  createActions(page)
   BuyUI.status = Style.StatusBar(page)
-
-  BuyUI.listings = ns.ListingsUI.Create(page, "CraftProfitBuyListings", function(row)
-    selected = row
-    BuyUI.Update()
-  end, { mode = "buy" })
-  place(BuyUI.listings.frame, page, LAYOUT.listings)
-
-  local r = LAYOUT.buyrow
-  local buyRow = Style.Button(page, "CraftProfitBuyRow", "Buy this", 200)
-  buyRow:SetPoint("TOPLEFT", page, "TOPLEFT", r.x, -r.y)
-  -- The other place a purchase starts.
-  buyRow:SetScript("OnClick", onBuyRow)
-  BuyUI.buyRow = buyRow
 end
 
 -- Drawing
 
-local function setEnabled(button, on)
-  if on then button:Enable() else button:Disable() end
+local function drawResults()
+  local results, capped, done = Buy.Results()
+  local tbl = BuyUI.results
+  if done then
+    tbl:SetTitle('Results for "' .. searchedText .. '": ' .. #results .. " items"
+      .. (capped and " (the first 1000 listings)" or ""))
+  else
+    tbl:SetTitle('Searching for "' .. searchedText .. '"...')
+  end
+  tbl:SetRows(results)
 end
 
-local function drawMaterials()
-  local list = {}
-  if recipeId then
-    local recipe = ns.Recipes.Get(recipeId)
-    if recipe then BuyUI.materialsLabel:SetText("Materials for: " .. recipe.name) end
-    list = ns.Lists.Materials(recipeId, tonumber(BuyUI.crafts:GetText()) or 1)
+local function drawItem(id, name)
+  local tbl = BuyUI.item
+  local groups = Buy.Groups()
+  -- a selected group the purchases or a fresh check emptied is gone
+  local still = false
+  for _, group in ipairs(groups) do
+    if group.key == selectedKey then still = true end
   end
-  -- More materials than lines: the last line says how many are not shown.
-  local shown = #list > MATERIAL_LINES and MATERIAL_LINES - 1 or MATERIAL_LINES
-  for i, line in ipairs(BuyUI.materials) do
-    local m = i <= shown and list[i] or nil
-    line.material = m
-    if not m and i == MATERIAL_LINES and #list > MATERIAL_LINES then
-      line.text:SetText("|cff808080... and " .. (#list - shown) .. " more|r")
-      line:Show()
-    elseif m then
-      local color = m.have >= m.need and GOOD or "|cffffffff"
-      line.text:SetText(m.name .. "  " .. color .. m.have .. "/" .. m.need .. "|r")
-      line:Show()
-    else
-      line:Hide()
-    end
-  end
+  if not still then selectedKey = nil end
+  tbl:SetTitle(name or "", id and select(10, GetItemInfo(id)))
+  tbl:SetRows(groups)
+  tbl:SetSelected(selectedKey)
 end
 
--- The Need box shows the need Buy holds (a materials click sets it, a new
--- search clears it), but never while the player is typing in it.
-local function drawNeed()
-  local box = BuyUI.need
-  if box:HasFocus() then return end
-  local target = Buy.Target()
-  local text = target and tostring(target) or ""
-  if box:GetText() ~= text then
-    writing = true
-    box:SetText(text)
-    writing = false
+local function drawList()
+  local key, title = Buy.ListKey(), ""
+  for _, list in ipairs(ns.Lists.All()) do
+    if list.key == key then title = list.name end
   end
+  BuyUI.list:SetTitle(title)
+  BuyUI.list:SetRows(Buy.ListLines())
 end
 
-local function drawButtons(id)
+-- A box shows what Buy holds (a list click sets the need, a new item clears
+-- it), but never while the player is typing in it.
+local function drawBox(box, text)
+  if box:HasFocus() or box:GetText() == text then return end
+  writing = true
+  box:SetText(text)
+  writing = false
+end
+
+local function drawItemButtons(id)
   local row = id and Buy.Pick()
   local remaining = Buy.Need()
   if not id then
@@ -265,39 +466,56 @@ local function drawButtons(id)
     setEnabled(BuyUI.cheapest, false)
   end
 
-  if buyable(selected) then
-    BuyUI.buyRow:SetText("Buy this (" .. Style.Money(selected.buyout) .. ")")
-    setEnabled(BuyUI.buyRow, true)
+  local pick = Buy.GroupPick(selectedGroup())
+  if pick then
+    BuyUI.buyOne:SetText("Buy one (" .. Style.Money(pick.buyout) .. ")")
+    setEnabled(BuyUI.buyOne, true)
   else
-    BuyUI.buyRow:SetText("Buy this")
-    setEnabled(BuyUI.buyRow, false)
+    BuyUI.buyOne:SetText("Buy one")
+    setEnabled(BuyUI.buyOne, false)
   end
 end
 
 function BuyUI.Update()
   if not built or not ns.Tabs.IsShown("buy") then return end
+  local view = Buy.View()
   local id, name = Buy.Current()
-  local rows = Buy.Rows()
-  if id ~= shownId then
-    shownId, selected = id, nil
-    local scroll = BuyUI.listings.scroll
-    FauxScrollFrame_SetOffset(scroll, 0)
-    local bar = _G[scroll:GetName() .. "ScrollBar"]
-    if bar then bar:SetValue(0) end
+  local shown = tostring(view) .. ":" .. tostring(view == "item" and id or view == "list" and Buy.ListKey() or "")
+  if shown ~= drawnView then
+    drawnView = shown
+    if view ~= "item" then selectedKey = nil end
+    BuyUI.results:ScrollTop()
+    BuyUI.item:ScrollTop()
+    BuyUI.list:ScrollTop()
   end
-  -- A selected row the fresh price check replaced is gone.
-  if selected and rows then
-    local still = false
-    for _, row in ipairs(rows) do if row == selected then still = true end end
-    if not still then selected = nil end
+
+  if view == "results" then BuyUI.results:Show() else BuyUI.results:Hide() end
+  if view == "item" then BuyUI.item:Show() else BuyUI.item:Hide() end
+  if view == "list" then BuyUI.list:Show() else BuyUI.list:Hide() end
+  setShown(BuyUI.itemActions, view == "item")
+  setShown(BuyUI.listActions, view == "list")
+  if view == "results" or not view then
+    BuyUI.hint:SetText(view and "Click an item to see its listings."
+      or "Search for an item, or pick a shopping list from Lists v.")
+    BuyUI.hint:Show()
+  else
+    BuyUI.hint:Hide()
   end
-  BuyUI.listings:SetTitle(name and (name .. ": cheapest first") or "",
-    id and select(10, GetItemInfo(id)))
-  BuyUI.listings:SetRows(rows and ns.Listings.MarkUnderYou(rows))
-  BuyUI.listings:SetSelected(selected)
-  drawMaterials()
-  drawNeed()
-  drawButtons(id)
+
+  if view == "results" then
+    drawResults()
+  elseif view == "item" then
+    drawItem(id, name)
+    local target = Buy.Target()
+    drawBox(BuyUI.need, target and tostring(target) or "")
+    drawItemButtons(id)
+  elseif view == "list" then
+    drawList()
+    drawBox(BuyUI.crafts, tostring(Buy.Crafts()))
+  end
+  setEnabled(BuyUI.back, Buy.CanGoBack())
+  setEnabled(BuyUI.toList, view == "item" and id ~= nil)
+
   -- A reply ("Not enough gold", "Finding it...") stays on the line until
   -- Buy's own status moves on (a purchase, a new search).
   local status = Buy.Status()
@@ -307,21 +525,13 @@ function BuyUI.Update()
   end
 end
 
--- PAGE_STATUS / PAGE_ERROR carry no page id: shown only while this page is.
--- With a need set the count stays in view after the reply.
-local function showMessage(text)
-  if not built or not ns.Tabs.IsShown("buy") then return end
-  if Buy.Target() and text ~= "" then text = text .. " - " .. Buy.Status() end
-  BuyUI.status:SetText(text)
-end
-
 -- Shift-click on any item link (a Tailoring reagent, a bag item, a chat
--- link) searches it while CP Buy is open. With a chat box open the link goes
+-- link) opens it while CP Buy is open. With a chat box open the link goes
 -- to chat as usual.
 hooksecurefunc("ChatEdit_InsertLink", function(text)
   if not text or not text:find("item:", 1, true) then return end
   if ChatEdit_GetActiveWindow() or not ns.Tabs.IsShown("buy") then return end
-  selected = nil
+  selectedKey = nil
   Buy.SearchLink(text)
   BuyUI.Update()
 end)
@@ -335,5 +545,7 @@ end)
 ns.On("BUY_CHANGED", BuyUI.Update)
 ns.On("BUYER_CHANGED", BuyUI.Update)
 ns.On("TRACKING_CHANGED", BuyUI.Update)
+ns.On("LISTS_CHANGED", BuyUI.Update)
+ns.On("PRICES_CHANGED", BuyUI.Update)
 ns.On("PAGE_STATUS", function(text) showMessage(text or "") end)
 ns.On("PAGE_ERROR", function(msg) showMessage(BAD .. (msg or "") .. "|r") end)

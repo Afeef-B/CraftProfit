@@ -590,6 +590,14 @@ function Mock.clearTooltip(tip)
   Mock.tooltip = {}
 end
 
+-- The player types `text` into the shown StaticPopup and clicks Accept.
+function Mock.acceptPopup(text)
+  local dialog = CreateFrame("Frame", "StaticPopup1")
+  local box = CreateFrame("EditBox", "StaticPopup1EditBox", dialog)
+  box:SetText(text)
+  StaticPopupDialogs[Mock.popup].OnAccept(dialog, Mock.popupData)
+end
+
 -- Answer the last query, as the server would.
 function Mock.deliver(ns)
   if Mock.pending then
