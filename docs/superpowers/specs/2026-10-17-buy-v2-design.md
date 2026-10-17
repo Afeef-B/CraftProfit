@@ -15,6 +15,9 @@ After trying 1.2, the user wants three changes:
    crafting cost.
 3. **No needless rescans.** An item scanned within the last 3 minutes is not
    searched again. Scan tracked skips it and CP Buy reuses its listings.
+4. **CP Sell remembers post sizes** (added after the spec was approved). The
+   player picks how many items per auction and how many auctions, and CP Sell
+   keeps that per item, with a default the player sets.
 
 ## Decisions (from the brainstorm)
 
@@ -26,6 +29,7 @@ After trying 1.2, the user wants three changes:
 | How recent counts as "just scanned" | 3 minutes |
 | Shopping lists | Automatic (one per tracked recipe) plus the player's own |
 | Confirm box before buying | Not picked: one click per purchase, as today, with the total on the button |
+| How CP Sell remembers stack size x auctions | Both: per item (what was last posted) plus a default setting for items not posted yet |
 
 ## Files
 
@@ -38,7 +42,9 @@ After trying 1.2, the user wants three changes:
 | `Buy.lua` | Rewritten around three views: results, item and list. It keeps the pick rule, Need, the countdown and every 1.2 safety. |
 | `BuyUI.lua` | Rewritten as a full-width page |
 | `Tooltip.lua` (new, after Lists) | Adds price lines to GameTooltip and ItemRefTooltip |
-| `Core.lua` | `/cp fresh <minutes>`; wiring; version 1.3.0 |
+| `Sell.lua` | Post sizes per item plus a default (`db.sell.sizes`, `db.sell.defaultStack`, `db.sell.defaultStacks`) |
+| `SellUI.lua` | A "Set as default" button next to the stack x auctions boxes |
+| `Core.lua` | `/cp fresh <minutes>`; `/cp post <items> <auctions>`; wiring; version 1.3.0 |
 | `README.md` | New CP Buy, tooltips, fresh window |
 
 Every 1.2 money rule stays:
@@ -145,6 +151,29 @@ Every 1.2 money rule stays:
 - **CP Sell always searches when an item goes in.** Posting needs a
   check, and the 1.1 rule stays.
 
+## CP Sell post sizes (stack size x auctions)
+
+- The two boxes stay where they are: items per auction and number of
+  auctions.
+- **Per item:** clicking Post saves that item's stack size and number of
+  auctions in `db.sell.sizes[id] = { stack, stacks }`. The next time the
+  item goes in the slot, CP Sell starts from those numbers.
+- **Default:** for an item not posted before, CP Sell starts from the
+  default. It is 2 items x 1 auction until the player changes it.
+  - A **Set as default** button next to the boxes saves the numbers in the
+    boxes as the default (`db.sell.defaultStack`, `db.sell.defaultStacks`).
+    The status line says "Default post: 2 x 1".
+  - `/cp post <items> <auctions>` sets the default from chat; `/cp post`
+    alone prints it. Both numbers are whole, at least 1; items at most
+    1000 and auctions at most 100.
+- **The start numbers fit what the player has.**
+  - Stack = min(saved stack, the item's max stack, owned).
+  - Auctions = min(saved auctions, floor(owned / stack)), at least 1.
+  - A bag (max stack 1) with a default of 2 x 1 starts at 1 x 1.
+  - 60 cloth saved at 20 x 5 starts at 20 x 3.
+- Typing in the boxes changes only this post until Post is clicked. The
+  1.1 checks ("too-big", "too-many") stay.
+
 ## Testing
 
 - `Scanner.Search` collects every item's rows across pages, groups them
@@ -172,6 +201,12 @@ Every 1.2 money rule stays:
   - Scan tracked skips items younger than 180 s;
   - `/cp fresh 5` gives 300;
   - `/cp fresh 0` gives always.
+- Post sizes:
+  - an item posted at 20 x 5 starts at 20 x 5 next time;
+  - an item not posted before starts at the default;
+  - Set as default and `/cp post 5 3` change the default and persist in db;
+  - start numbers are cut to the max stack and to what the player owns;
+  - typing in the boxes without posting saves nothing.
 - Guards:
   - one PlaceAuctionBid site;
   - `Buyer.Buy` called only from Flip.Buy and Buy;
