@@ -133,7 +133,6 @@ function Core.OnEvent(event, arg1, arg2)
   elseif event == "AUCTION_ITEM_LIST_UPDATE" then
     ns.Scanner.HandleEvent(event)
     ns.Buyer.OnListUpdate()
-    ns.Buy.OnListUpdate()
   elseif event == "AUCTION_HOUSE_CLOSED" then
     -- Told first: stopping the scan lets the pages that waited for it start
     -- theirs, and none may start now.

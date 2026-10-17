@@ -99,7 +99,9 @@ return {
   -- two buy functions only, and those are called only from their buttons'
   -- click handlers in FlipUI / BuyUI.
   purchase_callers_are_pinned = function(T)
-    local callers = { ["Buyer.Buy"] = {}, ["Buy.BuyCheapest"] = {}, ["Buy.BuyRow"] = {}, ["Flip.Buy"] = {} }
+    local callers = {
+      ["Buyer.Buy"] = {}, ["Buy.BuyCheapest"] = {}, ["Buy.BuyRow"] = {}, ["Buy.BuyGroup"] = {}, ["Flip.Buy"] = {},
+    }
     for _, path in ipairs(addonFiles()) do
       local src = code(read(path))
       local base = path:match("[^/]+$")
@@ -117,10 +119,23 @@ return {
       table.sort(got)
       T.eq(table.concat(got, " "), expected, name .. " call sites")
     end
-    only("Buyer.Buy", "Buy.lua=2 Flip.lua=1")
+    only("Buyer.Buy", "Buy.lua=1 Flip.lua=1")
     only("Flip.Buy", "Flip.lua=1")
     only("Buy.BuyCheapest", "BuyUI.lua=1")
     only("Buy.BuyRow", "BuyUI.lua=1")
+    only("Buy.BuyGroup", "")
+
+    -- in Buy.lua the one Buyer.Buy sits in buyRow, which only the three buy
+    -- functions call
+    local buy = code(read(Mock.root .. "Buy.lua"))
+    local body = buy:match("local function buyRow%(row%)(.-)\nend")
+    T.ok(body and body:find("Buyer.Buy(", 1, true), "Buyer.Buy inside buyRow")
+    local _, rowCalls = buy:gsub("buyRow%(", "")
+    T.eq(rowCalls - 1, 3, "buyRow: BuyCheapest, BuyGroup, BuyRow")
+    for _, fn in ipairs({ "BuyCheapest", "BuyGroup", "BuyRow" }) do
+      local f = buy:match("function Buy%." .. fn .. "%(.-%)(.-)\nend")
+      T.ok(f and f:find("buyRow(", 1, true), fn .. " goes through buyRow")
+    end
 
     -- and in BuyUI they sit inside the click handlers wired to the buttons
     local ui = code(read(Mock.root .. "BuyUI.lua"))

@@ -28,7 +28,9 @@ function Mock.reset()
   end
   DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) Mock.chat[#Mock.chat + 1] = msg end }
 
-  -- Item cache: Mock.items[id] = { name = "..." }
+  -- Item cache: Mock.items[id] = { name = "..." }. uncached = true: the
+  -- client has not seen the item yet (GetItemInfo is nil) until an AH row's
+  -- link of it is read.
   Mock.items = {}
   GetItemInfo = function(id)
     if type(id) == "string" then
@@ -37,7 +39,7 @@ function Mock.reset()
       end
     end
     local item = Mock.items[id]
-    if not item then return nil end
+    if not item or item.uncached then return nil end
     -- name, link, rarity, level, minLevel, type, subType, maxStack, equipLoc, texture, sellPrice
     return item.name, Mock.Link(id, item.name), 1, 1, 1, item.type or "Misc", item.subType or "Misc",
       item.maxStack or 1, "", item.texture or "Interface\\Icons\\INV_Misc_Bag_01", 0
@@ -160,6 +162,8 @@ function Mock.reset()
   GetAuctionItemLink = function(kind, i)
     local a = (kind == "owner" and Mock.ownerBatch() or Mock.list)[i]
     if Mock.ah.nilLinks or a.nilLink then return nil end
+    local item = Mock.items[a.id]
+    if item then item.uncached = nil end -- the client caches what it shows
     return Mock.Link(a.id, a.name, a.suffix)
   end
 

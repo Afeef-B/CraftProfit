@@ -20,7 +20,7 @@ local function setup(auctions, cached)
   Mock.installUI()
   local ns = Mock.load({
     "Util.lua", "Style.lua", "Profit.lua", "Prices.lua", "Recipes.lua", "Scanner.lua",
-    "Listings.lua", "Buyer.lua", "Buy.lua",
+    "Listings.lua", "Lists.lua", "Buyer.lua", "Buy.lua",
   })
   local db = { cut = 0.05, chars = { [REALM] = { Twink = true } } }
   ns.db = db
@@ -28,8 +28,11 @@ local function setup(auctions, cached)
   ns.Scanner.SetDB(db)
   ns.Listings.SetDB(db, REALM, "Me")
   ns.Recipes.SetDB({})
+  ns.Lists.SetDB(db)
   hooksecurefunc("QueryAuctionItems", ns.Scanner.OnQuery)
-  if cached ~= false then Mock.items[CLOTH] = { name = CLOTH_NAME, maxStack = 20 } end
+  if cached ~= false then
+    Mock.items[CLOTH] = { name = CLOTH_NAME, maxStack = 20, type = "Trade Goods", subType = "Cloth" }
+  end
   Mock.ah.auctions = auctions or {}
   Mock.money = 1000 * 10000
   return ns
@@ -48,6 +51,189 @@ local function rowOf(ns, seller)
 end
 
 return {
+  exact_cached_name_opens_the_item = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)) })
+    T.ok(ns.Buy.Search(CLOTH_NAME))
+    T.eq(ns.Buy.View(), "item")
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1)
+    T.eq(Mock.queries[1][1], CLOTH_NAME)
+    T.eq(Mock.queries[1][5], 6, "Trade Goods")
+    T.eq(Mock.queries[1][6], 2, "Cloth")
+    T.eq(#ns.Buy.Rows(), 1)
+  end,
+
+  recipe_material_name_opens_the_item = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)) }, false)
+    ns.Recipes.All()[BAG] = { name = BAG_NAME, made = 1, reagents = { { id = CLOTH, name = CLOTH_NAME, count = 5 } } }
+    T.ok(ns.Buy.Search("frostweave cloth"))
+    T.eq(ns.Buy.View(), "item")
+    local id, name = ns.Buy.Current()
+    T.eq(id, CLOTH)
+    T.eq(name, CLOTH_NAME)
+  end,
+
+  other_text_shows_results = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)), auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) })
+    T.ok(ns.Buy.Search("frostweave"))
+    T.eq(ns.Buy.View(), "results")
+    T.eq(ns.Buy.Status(), "Searching...")
+    T.ok(Mock.pump(ns))
+    local results, capped = ns.Buy.Results()
+    T.eq(#results, 2)
+    T.eq(capped, false)
+    T.eq(results[1].name, BOLT_NAME)
+    T.eq(ns.Buy.Status(), "Search done: 2 items")
+    T.eq(ns.Buy.Current(), nil)
+  end,
+
+  kings_amber_stops_at_the_exact_page = function(T)
+    local AMBER, BRILLIANT = 36921, 36919
+    local list = {}
+    for i = 1, 120 do list[i] = auction(BRILLIANT, "Brilliant King's Amber", "S" .. i, 1, 5000 + i) end
+    for i = 1, 3 do list[120 + i] = auction(AMBER, "King's Amber", "K" .. i, 1, 9000 + i) end
+    for i = 1, 60 do list[123 + i] = auction(BRILLIANT, "Brilliant King's Amber", "T" .. i, 1, 7000 + i) end
+    local ns = setup(list)
+    Mock.items[AMBER] = { name = "King's Amber", type = "Gem", subType = "Simple", uncached = true }
+    T.ok(ns.Buy.Search("King's Amber"))
+    T.ok(Mock.pump(ns), "the name search")
+    T.ok(Mock.pump(ns), "the item's price check")
+    T.eq(ns.Buy.View(), "item")
+    T.eq((ns.Buy.Current()), AMBER)
+    T.eq(#Mock.queries, 4, "three name pages, then one page of the item's category")
+    for p = 1, 3 do T.eq(Mock.queries[p][5], nil, "page " .. p .. " by name") end
+    T.eq(Mock.queries[4][5], 10, "Gem")
+    T.eq(Mock.queries[4][6], 8, "Simple")
+    T.eq(#ns.Buy.Rows(), 3)
+    T.eq(ns.Buy.CanGoBack(), false, "no results were shown")
+  end,
+
+  item_view_reuses_fresh_listings = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)) })
+    searchCloth(ns)
+    T.eq(#Mock.queries, 1)
+    Mock.now = Mock.now + 60
+    T.ok(ns.Buy.OpenItem(CLOTH, CLOTH_NAME))
+    T.eq(ns.Scanner.IsBusy(), false)
+    T.eq(#Mock.queries, 1, "60 s old listings are reused")
+    Mock.now = Mock.now + 121
+    T.ok(ns.Buy.OpenItem(CLOTH, CLOTH_NAME))
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 2, "181 s old: searched again")
+  end,
+
+  item_after_search_price_checks = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)), auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) })
+    T.ok(ns.Buy.Search("frostweave"))
+    T.ok(Mock.pump(ns))
+    Mock.queries = {}
+    T.ok(ns.Buy.OpenItem(CLOTH, CLOTH_NAME))
+    T.ok(ns.Scanner.IsBusy(), "the search's rows are not the item's listings")
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1)
+    T.eq(Mock.queries[1][5], 6, "the item's category search")
+  end,
+
+  back_returns_to_the_results = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)), auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) })
+    T.ok(ns.Buy.Search("frostweave"))
+    T.ok(Mock.pump(ns))
+    T.eq(ns.Buy.CanGoBack(), false)
+    ns.Buy.OpenItem(CLOTH, CLOTH_NAME)
+    T.eq(ns.Buy.CanGoBack(), true)
+    ns.Buy.Back()
+    T.eq(ns.Buy.View(), "results")
+    T.eq(#ns.Buy.Results(), 2)
+    T.eq(ns.Buy.CanGoBack(), false)
+  end,
+
+  buy_one_takes_one_stack_of_the_group = function(T)
+    local ns = setup({ cloth("A", 20, silver(9)), cloth("B", 20, silver(9)), cloth("C", 20, silver(9)) })
+    searchCloth(ns)
+    local group = ns.Buy.Groups()[1]
+    T.eq(#group.rows, 3)
+    T.ok(ns.Buy.BuyGroup(group))
+    T.eq(#Mock.bought, 1)
+    local first = Mock.bought[1].auction.seller
+    T.eq(#ns.Buy.Groups()[1].rows, 2, "the bought stack leaves the group at once")
+    T.ok(Mock.pump(ns), "the post-buy check")
+    T.eq(#ns.Buy.Groups()[1].rows, 2)
+    T.ok(ns.Buy.BuyGroup(ns.Buy.Groups()[1]))
+    T.eq(#Mock.bought, 2)
+    T.ok(Mock.bought[2].auction.seller ~= first, "another stack")
+  end,
+
+  group_of_mine_has_nothing_to_buy = function(T)
+    local ns = setup({ cloth("Me", 20, silver(9)), cloth("Twink", 20, silver(9)) })
+    searchCloth(ns)
+    local group = ns.Buy.Groups()[1]
+    T.eq(group.mine, true)
+    T.eq(ns.Buy.GroupPick(group), nil)
+    local ok, msg = ns.Buy.BuyGroup(group)
+    T.eq(ok, false)
+    T.eq(msg, "Nothing to buy.")
+    T.eq(#Mock.bought, 0)
+  end,
+
+  list_line_sets_need = function(T)
+    local GLACIAL = 41600
+    local ns = setup({ cloth("Kim", 20, silver(9)) })
+    ns.Recipes.All()[GLACIAL] = { name = "Glacial Bag", made = 1, reagents = { { id = CLOTH, name = CLOTH_NAME, count = 5 } } }
+    ns.Recipes.SetTracked(GLACIAL, true)
+    Mock.bags[0] = { [1] = { id = CLOTH, name = CLOTH_NAME, count = 4 } }
+    ns.Buy.OpenList("auto:" .. GLACIAL)
+    T.eq(ns.Buy.View(), "list")
+    T.eq(ns.Buy.ListKey(), "auto:" .. GLACIAL)
+    ns.Buy.SetCrafts(3)
+    T.eq(ns.Buy.Crafts(), 3)
+    local line = ns.Buy.ListLines()[1]
+    T.eq(line.need, 15)
+    ns.Buy.OpenLine(line)
+    T.eq(ns.Buy.View(), "item")
+    T.eq(ns.Buy.Target(), 11)
+    T.eq(ns.Buy.CanGoBack(), true)
+    ns.Buy.Back()
+    T.eq(ns.Buy.View(), "list")
+    -- one of the player's own lists has no need
+    ns.Lists.Create("Run")
+    ns.Lists.Add("Run", CLOTH, CLOTH_NAME)
+    ns.Buy.OpenList("own:Run")
+    ns.Buy.OpenLine(ns.Buy.ListLines()[1])
+    T.eq(ns.Buy.Target(), nil)
+    ns.Buy.SetCrafts("x")
+    T.eq(ns.Buy.Crafts(), 1)
+  end,
+
+  search_all_skips_fresh = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)), auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) })
+    ns.Lists.Create("Run")
+    ns.Lists.Add("Run", CLOTH, CLOTH_NAME)
+    ns.Lists.Add("Run", BOLT, BOLT_NAME)
+    ns.Prices.SetAH(BOLT, silver(80), 1, Mock.now - 10)
+    ns.Buy.OpenList("own:Run")
+    T.ok(ns.Buy.SearchAll())
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 1)
+    T.eq(Mock.queries[1][1], CLOTH_NAME)
+    local status = ns.Buy.Status()
+    T.eq(status:sub(-#"(1 still fresh, skipped)"), "(1 still fresh, skipped)", status)
+    T.eq(ns.Buy.ListLines()[1].unit, silver(9), "the cheapest column fills in")
+    -- everything fresh now: nothing to search
+    T.eq(select(2, ns.Buy.SearchAll()), "fresh")
+    T.ok(ns.Buy.Status():find("Nothing to scan", 1, true))
+  end,
+
+  deleted_list_leaves_the_view = function(T)
+    local ns = setup()
+    ns.Lists.Create("Cloth run")
+    ns.Buy.OpenList("own:Cloth run")
+    T.eq(ns.Buy.View(), "list")
+    ns.Lists.Delete("Cloth run")
+    T.eq(ns.Buy.View(), nil)
+    T.eq(ns.Buy.ListKey(), nil)
+    T.eq(#ns.Buy.ListLines(), 0)
+  end,
+
   pick_cheapest_that_fits = function(T)
     local ns = setup({
       cloth("A", 20, silver(9)), cloth("B", 5, silver(10)),
@@ -120,19 +306,18 @@ return {
       auction(BAG, BAG_NAME, "Ann", 1, 4000000),
     }, false) -- the cloth is not in the client's item cache
     T.ok(ns.Buy.Search("Frostweave Cloth"))
-    Mock.deliver(ns)
-    ns.Buy.OnListUpdate()           -- the name search answered: find the exact name
+    T.ok(Mock.pump(ns), "the name search")
     T.ok(Mock.pump(ns), "price check of the cloth")
     local id, name = ns.Buy.Current()
     T.eq(id, CLOTH)
     T.eq(name, CLOTH_NAME)
+    T.eq(ns.Buy.View(), "item")
     for _, row in ipairs(ns.Buy.Rows()) do T.eq(row.seller, "Kim", "only cloth rows") end
     T.eq(#ns.Buy.Rows(), 1)
 
     local ns2 = setup({ auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)), cloth("Kim", 20, silver(9)) }, false)
     T.ok(ns2.Buy.Search("frostweave cloth"))
-    Mock.deliver(ns2)
-    ns2.Buy.OnListUpdate()
+    T.ok(Mock.pump(ns2))
     T.ok(Mock.pump(ns2))
     T.eq((ns2.Buy.Current()), CLOTH, "the name is matched without regard to case")
   end,
@@ -140,10 +325,11 @@ return {
   unknown_name_says_so = function(T)
     local ns = setup({ auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) }, false)
     T.ok(ns.Buy.Search("Frostweave Cloth"))
-    Mock.deliver(ns)
-    ns.Buy.OnListUpdate()
+    T.ok(Mock.pump(ns))
     T.eq(ns.Buy.Current(), nil)
-    T.eq(ns.Buy.Status(), "No item called Frostweave Cloth on the Auction House.")
+    T.eq(ns.Buy.View(), "results")
+    T.eq(#ns.Buy.Results(), 0)
+    T.eq(ns.Buy.Status(), 'No items called "Frostweave Cloth" on the Auction House.')
     T.eq(#Mock.bought, 0)
   end,
 
@@ -168,7 +354,6 @@ return {
     for _, event in ipairs({ "LISTINGS_UPDATED", "SCAN_FINISHED", "PRICES_CHANGED", "BUYER_CHANGED" }) do
       ns.Fire(event, CLOTH)
     end
-    ns.Buy.OnListUpdate()
     T.eq(#Mock.bought, 0, "events never buy")
   end,
 
@@ -233,61 +418,28 @@ return {
     T.ok(ns.Scanner.IsBusy(), "the item is searched again after the timeout")
   end,
 
-  lookup_waits_for_names_to_load = function(T)
-    local ns = setup({ cloth("Kim", 20, silver(9)) }, false)
-    Mock.ah.nilNames = true
-    T.ok(ns.Buy.Search(CLOTH_NAME))
-    Mock.deliver(ns)
-    ns.Buy.OnListUpdate()
-    T.eq(ns.Buy.Current(), nil, "not decided yet")
-    T.ok(ns.Buy.Status() ~= "No item called Frostweave Cloth on the Auction House.")
-    Mock.ah.nilNames = false
-    ns.Buy.OnListUpdate()                     -- the names arrived
-    T.eq((ns.Buy.Current()), CLOTH)
-
-    -- names that never load: after a moment, decide from what can be read
-    local ns2 = setup({ cloth("Kim", 20, silver(9)) }, false)
-    Mock.ah.nilNames = true
-    T.ok(ns2.Buy.Search(CLOTH_NAME))
-    Mock.deliver(ns2)
-    ns2.Buy.OnListUpdate()
-    ns2.Buy.Tick(2.5)
-    T.eq(ns2.Buy.Status(), "No item called Frostweave Cloth on the Auction House.")
-  end,
-
   late_lookup_does_not_switch_items = function(T)
     local ns = setup({ cloth("Kim", 20, silver(9)), auction(DUST, DUST_NAME, "Dee", 5, silver(30)) })
-    T.ok(ns.Buy.Search(DUST_NAME))            -- not cached: looked up on the AH
+    T.ok(ns.Buy.Search(DUST_NAME))            -- not cached: a name search
     -- before the answer, the player shift-clicks cloth and sets a need
     ns.Buy.SearchLink(Mock.Link(CLOTH, CLOTH_NAME))
     ns.Buy.SetNeed(40)
-    Mock.deliver(ns)
-    ns.Buy.OnListUpdate()                     -- the dust answer arrives late
+    T.ok(Mock.pump(ns), "the dust search ends")
+    T.ok(Mock.pump(ns), "then the cloth check")
     T.eq((ns.Buy.Current()), CLOTH, "still the cloth")
+    T.eq(ns.Buy.View(), "item")
     T.eq(ns.Buy.Need(), 40)
-  end,
-
-  stale_page_is_not_the_answer = function(T)
-    local ns = setup({ cloth("Kim", 20, silver(9)), auction(DUST, DUST_NAME, "Dee", 5, silver(30)) }, false)
-    -- the client shows a page of bolts; its late update must not count
-    Mock.list, Mock.total = { auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) }, 1
-    local saved = Mock.list
-    T.ok(ns.Buy.Search(CLOTH_NAME))
-    Mock.list, Mock.total = saved, 1          -- a late update for that same page
-    ns.Buy.OnListUpdate()
-    T.eq(ns.Buy.Current(), nil)
-    T.ok(ns.Buy.Status() ~= "No item called Frostweave Cloth on the Auction House.", "no false answer")
   end,
 
   throttled_lookup_retries = function(T)
     local ns = setup({ cloth("Kim", 20, silver(9)) }, false)
     Mock.ah.canQuery = false
-    local ok = ns.Buy.Search(CLOTH_NAME)
-    T.ok(not ok)
+    T.ok(ns.Buy.Search(CLOTH_NAME))
+    ns.Scanner.Tick(0.1)
     local sent = #Mock.queries
     Mock.ah.canQuery = true
-    ns.Buy.Tick(1)
-    T.eq(#Mock.queries, sent + 1, "the lookup is sent once the AH allows it")
+    ns.Scanner.Tick(0.1)
+    T.eq(#Mock.queries, sent + 1, "the search is sent once the AH allows it")
   end,
 
   search_item_by_id_needs_no_lookup = function(T)

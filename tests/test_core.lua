@@ -934,17 +934,6 @@ return {
     T.eq(CraftProfitDB.lastScanAll ~= nil, true, "(the request was sent: the cooldown is used)")
   end,
 
-  list_update_reaches_buy = function(T)
-    local ns = load()
-    local order = {}
-    local buy = spy(ns.Buy, "OnListUpdate", order)
-    local scanner = spy(ns.Scanner, "HandleEvent", order)
-    fire("AUCTION_ITEM_LIST_UPDATE")
-    T.eq(#buy, 1)
-    T.eq(#scanner, 1)
-    T.eq(order[1], "HandleEvent", "the scanner reads the page first")
-  end,
-
   toc_lists_every_file_in_order = function(T)
     local f = assert(io.open(Mock.root .. "CraftProfit.toc", "r"))
     local toc = f:read("*a")
