@@ -86,6 +86,80 @@ local function events(ns)
 end
 
 return {
+  posted_size_is_remembered = function(T)
+    local ns, db = setup()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 100)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    ns.Sell.SetUnit(500)
+    ns.Sell.SetStack(20)
+    ns.Sell.SetStacks(5)
+    T.eq(ns.Sell.Post(), true)
+    T.eq(db.sell.sizes[CLOTH].stack, 20)
+    T.eq(db.sell.sizes[CLOTH].stacks, 5)
+    -- the slot empties; the cloth goes in again
+    Mock.sellSlot = nil
+    ns.Sell.OnSlotChanged(nil)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().stack, 20)
+    T.eq(ns.Sell.State().stacks, 5)
+  end,
+
+  new_item_starts_at_the_default = function(T)
+    local ns, db = setup()
+    T.eq(ns.Sell.SetDefault(5, 3), true)
+    T.eq(db.sell.defaultStack, 5)
+    T.eq(db.sell.defaultStacks, 3)
+    T.eq(select(1, ns.Sell.Default()), 5)
+    T.eq(select(2, ns.Sell.Default()), 3)
+    T.eq(ns.Sell.State().status, "Default post: 5 x 3")
+    inBag(0, 1, CLOTH, CLOTH_NAME, 100)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().stack, 5)
+    T.eq(ns.Sell.State().stacks, 3)
+    inBag(1, 1, BAG, BAG_NAME, 4)
+    T.ok(ns.Sell.PutItem(1, 1))
+    T.eq(ns.Sell.State().stack, 1, "a bag does not stack")
+    T.eq(ns.Sell.State().stacks, 3)
+  end,
+
+  start_numbers_fit_what_you_have = function(T)
+    local ns, db = setup()
+    db.sell.sizes[CLOTH] = { stack = 20, stacks = 5 }
+    inBag(0, 1, CLOTH, CLOTH_NAME, 60)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().stack, 20)
+    T.eq(ns.Sell.State().stacks, 3, "60 cloth make 3 stacks of 20")
+    local ns2, db2 = setup()
+    db2.sell.sizes[CLOTH] = { stack = 20, stacks = 5 }
+    inBag(0, 1, CLOTH, CLOTH_NAME, 15)
+    T.ok(ns2.Sell.PutItem(0, 1))
+    T.eq(ns2.Sell.State().stack, 15)
+    T.eq(ns2.Sell.State().stacks, 1)
+  end,
+
+  typing_without_posting_saves_nothing = function(T)
+    local ns, db = setup()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 100)
+    T.ok(ns.Sell.PutItem(0, 1))
+    ns.Sell.SetStack(7)
+    Mock.sellSlot = nil
+    ns.Sell.OnSlotChanged(nil)
+    T.eq(db.sell.sizes[CLOTH], nil)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.eq(ns.Sell.State().stack, 2, "back to the default")
+  end,
+
+  set_default_rejects_bad_numbers = function(T)
+    local ns = setup()
+    for _, bad in ipairs({ { 0, 1 }, { 1001, 1 }, { 2, 101 }, { 2.5, 1 }, { 2, 0 } }) do
+      T.eq(ns.Sell.SetDefault(bad[1], bad[2]), false, bad[1] .. " x " .. bad[2])
+    end
+    local stack, stacks = ns.Sell.Default()
+    T.eq(stack, 2); T.eq(stacks, 1)
+    T.eq(ns.Sell.SetDefault(1000, 100), true, "the limits themselves")
+  end,
+
   -- Undercutting posts a little at a time: 1 auction of 2 (1 of 1 for gear),
   -- so the rest stays in the bags to undercut back with.
   default_counts_small_posts = function(T)

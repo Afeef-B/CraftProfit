@@ -229,6 +229,7 @@ local HELP = {
   "/cp cut <percent> - AH cut (5 normally, 15 at neutral AHs)",
   "/cp outlier <percent> - a listing under this % of the next one is a mistake (1-99, default 50)",
   "/cp fresh <minutes> - don't rescan items scanned this recently (0-60, default 3)",
+  "/cp post <items> <auctions> - stack size x auctions CP Sell starts with (default 2 x 1)",
   "/cp list - print profit for tracked crafts",
   "/cp reset prices - forget scanned AH prices for this realm and faction",
 }
@@ -326,6 +327,18 @@ function commands.fresh(rest)
   ns.Prices.SetFreshSeconds(minutes * 60)
   Util.Print(minutes == 0 and "Every scan searches again now."
     or ("Items scanned in the last " .. minutes .. " min are not scanned again."))
+end
+
+-- The stack size x auctions CP Sell starts items not posted before at.
+function commands.post(rest)
+  local size, count = rest:match("^(%d+)%s+(%d+)$")
+  if size and ns.Sell.SetDefault(size, count) then
+    Util.Print("Default post: " .. size .. " x " .. count)
+    return
+  end
+  local stack, stacks = ns.Sell.Default()
+  Util.Print("Default post: " .. stack .. " x " .. stacks)
+  Util.Print("Usage: /cp post <items> <auctions> (items 1-1000, auctions 1-100)")
 end
 
 function commands.diag()

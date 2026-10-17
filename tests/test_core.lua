@@ -82,6 +82,22 @@ local function addForeignTab(n)
 end
 
 return {
+  post_command = function(T)
+    local _, Core = load()
+    Core.Slash("post 5 3")
+    T.eq(CraftProfitDB.sell.defaultStack, 5)
+    T.eq(CraftProfitDB.sell.defaultStacks, 3)
+    T.ok(chatHas("Default post: 5 x 3"))
+    Mock.chat = {}
+    Core.Slash("post 0 3")
+    T.ok(chatHas("Usage: /cp post <items> <auctions>"))
+    T.eq(CraftProfitDB.sell.defaultStack, 5)
+    Mock.chat = {}
+    Core.Slash("post")
+    T.ok(chatHas("Default post: 5 x 3"))
+    T.ok(chatHas("Usage: /cp post <items> <auctions>"))
+  end,
+
   fresh_command = function(T)
     local _, Core = load()
     Core.Slash("fresh 5")

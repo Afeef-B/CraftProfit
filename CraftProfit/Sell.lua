@@ -198,13 +198,20 @@ local function resetItem()
   if TRANSIENT[status] then status = "" end
 end
 
--- Stack size and number of auctions that sell everything we own.
--- Undercutting posts a little at a time: one auction of 2 (of 1 for what
--- doesn't stack), so the rest stays in the bags to undercut back with.
-local SMALL_STACK = 2
-local function defaultCounts(maxStack, owned)
+-- Stack size and number of auctions to start an item at: what the player
+-- last posted it with, else the default they set. Out of the box that is one
+-- auction of 2 (of 1 for what doesn't stack): undercutting posts a little at
+-- a time, so the rest stays in the bags to undercut back with. Always cut to
+-- the item's stack size and to what the player has.
+local DEFAULT_STACK, DEFAULT_STACKS = 2, 1
+local MAX_STACK_SIZE, MAX_AUCTIONS = 1000, 100
+local function defaultCounts(id, maxStack, owned)
   if owned < 1 then return 1, 1 end
-  return max(1, min(SMALL_STACK, maxStack, owned)), 1
+  local saved = db and db.sell.sizes[id]
+  local wantStack = saved and saved.stack or (db and db.sell.defaultStack) or DEFAULT_STACK
+  local wantStacks = saved and saved.stacks or (db and db.sell.defaultStacks) or DEFAULT_STACKS
+  local size = max(1, min(wantStack, maxStack, owned))
+  return size, max(1, min(wantStacks, floor(owned / size)))
 end
 
 local function wholeCount(n)
@@ -224,6 +231,7 @@ end
 function Sell.SetDB(savedDB)
   db = savedDB
   db.sell = db.sell or {}
+  db.sell.sizes = db.sell.sizes or {}
   local saved = db.sell.duration
   if saved ~= 1 and saved ~= 2 and saved ~= 3 then db.sell.duration = DEFAULT_DURATION end
   duration = db.sell.duration
@@ -285,7 +293,7 @@ function Sell.OnSlotChanged(id, suffix)
     id = id, name = slotName, texture = slotTexture or select(10, GetItemInfo(id)),
     maxStack = maxStack or 1, owned = owned, suffix = suffix,
   }
-  stack, stacks = defaultCounts(item.maxStack, owned)
+  stack, stacks = defaultCounts(id, item.maxStack, owned)
   priceEdited = false
   unit = defaultPrice(id, listings)
   Sell.lastId, lastName = id, slotName
@@ -403,6 +411,23 @@ end
 function Sell.SetStacks(n)
   stacks = wholeCount(n)
   changed()
+end
+
+-- The stack size and number of auctions an item not posted before starts at.
+function Sell.Default()
+  return db and db.sell.defaultStack or DEFAULT_STACK, db and db.sell.defaultStacks or DEFAULT_STACKS
+end
+
+-- ok; false (nothing changes) unless both are whole numbers, 1-1000 items
+-- and 1-100 auctions.
+function Sell.SetDefault(size, count)
+  size, count = tonumber(size), tonumber(count)
+  local function whole(n, top) return n and n == floor(n) and n >= 1 and n <= top end
+  if not (whole(size, MAX_STACK_SIZE) and whole(count, MAX_AUCTIONS)) then return false end
+  db.sell.defaultStack, db.sell.defaultStacks = size, count
+  status = "Default post: " .. size .. " x " .. count
+  changed()
+  return true
 end
 
 function Sell.SetDuration(d)
@@ -524,6 +549,8 @@ function Sell.Post()
   local s = Sell.State()
   if not s.canPost then return false end
   local price = s.unit * s.stack
+  -- The item starts at this size the next time it goes in the slot.
+  db.sell.sizes[s.item.id] = { stack = s.stack, stacks = s.stacks }
   posting, postStacks, postOwned = true, s.stacks, s.item.owned
   multisellSeen = false
   status = "Posting..."

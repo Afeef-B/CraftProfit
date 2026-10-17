@@ -94,6 +94,25 @@ end
 local function typePrice(copper) MoneyInputFrame_SetCopper(CraftProfitSellPrice, copper) end
 
 return {
+  set_as_default_button = function(T)
+    local ns, db = setup()
+    openSell()
+    inBag(0, 1, CLOTH, CLOTH_NAME, 45)
+    T.ok(ns.Sell.PutItem(0, 1))
+    T.ok(Mock.pump(ns))
+    T.ok(CraftProfitSellDefault, "the button")
+    T.eq(CraftProfitSellDefault:GetText(), "Set as default")
+    T.ok(CraftProfitSellDefault:GetParent() == CraftProfitSellPricePanel, "in the Price panel")
+    CraftProfitSellStack:SetText("4")
+    CraftProfitSellStacks:SetText("2")
+    click(CraftProfitSellDefault)
+    T.eq(db.sell.defaultStack, 4)
+    T.eq(db.sell.defaultStacks, 2)
+    T.eq(ns.SellUI.status:GetText(), "Default post: 4 x 2")
+    CraftProfitSellDefault:GetScript("OnEnter")(CraftProfitSellDefault)
+    T.ok(table.concat(Mock.tooltip, "\n"):find("stack size x auctions", 1, true), "explains itself")
+  end,
+
   build_once_on_page_shown = function(T)
     local ns = setup()
     local created = 0
