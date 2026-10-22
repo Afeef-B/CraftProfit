@@ -23,6 +23,67 @@ local CLOTH_ITEM = { id = CLOTH, name = "Frostweave Cloth" }
 local THREAD_ITEM = { id = THREAD, name = "Eternium Thread" }
 
 return {
+  repeated_search_is_not_delayed = function(T)
+    local ns, S = load()
+    Mock.ah.auctions = { auction(CLOTH, "Frostweave Cloth", 1, 1000) }
+    S.Search("frostweave")
+    T.ok(Mock.pump(ns))
+    -- the same search again: its answer is the page already shown
+    S.Search("frostweave")
+    S.Tick(0.1)
+    Mock.deliver(ns)
+    T.eq(S.IsBusy(), false, "read at once, not after the retry")
+  end,
+
+  search_with_missing_links_stores_no_prices = function(T)
+    local ns, S, P = load()
+    local cheap = auction(CLOTH, "Frostweave Cloth", 20, 2000, "A")
+    cheap.nilLink = true                     -- its link never loads
+    Mock.ah.auctions = { cheap, auction(CLOTH, "Frostweave Cloth", 1, 900, "B") }
+    local done
+    ns.On("SEARCH_DONE", function(_, results) done = results end)
+    S.Search("frostweave")
+    T.ok(Mock.pump(ns))
+    T.eq(#done, 1, "the readable rows are still shown")
+    T.eq((P.GetAH(CLOTH)), nil, "a page read without all its links is not the item's price")
+    T.eq(P.IsFresh(CLOTH), false)
+  end,
+
+  foreign_late_page_is_not_the_search = function(T)
+    local ns, S, P = load()
+    local SARONITE, BOLT = 36913, 41510
+    Mock.ah.auctions = {
+      auction(CLOTH, "Frostweave Cloth", 1, 1000, "A"), auction(BOLT, "Bolt of Frostweave", 1, 3000, "B"),
+    }
+    -- the client shows a page someone else loaded (Browse): its late update
+    -- arrives after our first search page went out
+    local function check(shown, shownTotal)
+      Mock.list, Mock.total = shown, shownTotal
+      local done
+      ns.On("SEARCH_DONE", function(_, results) done = results end)
+      S.Search("frostweave")
+      S.Tick(0.1)
+      local answer, total = Mock.list, Mock.total
+      Mock.list, Mock.total = shown, shownTotal
+      S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
+      T.eq(S.IsBusy(), true, "that page is not our answer")
+      Mock.list, Mock.total = answer, total
+      T.ok(Mock.pump(ns))
+      return done
+    end
+    local saronite = {}
+    for i = 1, 50 do saronite[i] = auction(SARONITE, "Saronite Bar", 1, 500 + i, "S" .. i) end
+    local done = check(saronite, 120)
+    T.eq(#done, 2)
+    T.eq((P.GetAH(SARONITE)), nil)
+    T.eq((P.GetAH(CLOTH)), 1000)
+    -- a shown page whose items do match the search text
+    local bolts = { auction(BOLT, "Bolt of Frostweave", 1, 9999, "Z") }
+    done = check(bolts, 1)
+    T.eq(#done, 2, "cloth and bolts, from our own answer")
+    T.eq((P.GetAH(BOLT)), 3000, "not the shown page's 9999")
+  end,
+
   search_groups_every_item = function(T)
     local ns, S = load()
     local BOLT, BAG = 41510, 41599
@@ -133,9 +194,11 @@ return {
     S.HandleEvent("AUCTION_ITEM_LIST_UPDATE")
     T.eq(S.IsBusy(), false)
     T.eq((P.GetAH(CLOTH)), 1000)
-    -- links that never come: read after the wait
+    -- links that never come: read after the wait (another item, so the
+    -- answer is not the page already shown)
+    Mock.ah.auctions = { auction(THREAD, "Eternium Thread", 1, 300) }
     Mock.ah.nilLinks = true
-    S.Search("frost")
+    S.Search("eternium")
     S.Tick(0.1)
     Mock.deliver(ns)
     for _ = 1, 21 do S.Tick(0.1) end

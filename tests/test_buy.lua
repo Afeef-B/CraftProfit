@@ -51,6 +51,64 @@ local function rowOf(ns, seller)
 end
 
 return {
+  new_search_replaces_a_running_one = function(T)
+    local list = {}
+    for i = 1, 300 do list[i] = auction(50000 + (i % 5), "Frost thing " .. (i % 5), "S" .. i, 1, 1000 + i) end
+    list[301] = cloth("Kim", 20, silver(9))
+    local ns = setup(list)
+    T.ok(ns.Buy.Search("fro"))
+    ns.Scanner.Tick(0.1)
+    Mock.deliver(ns)                          -- page 1 of 7 read
+    local sent = #Mock.queries
+    T.ok(ns.Buy.Search("frostweave"))
+    T.ok(ns.Buy.Status() ~= "Waiting for the current scan...", "the new search runs at once")
+    T.ok(Mock.pump(ns))
+    for i = sent + 1, #Mock.queries do T.eq(Mock.queries[i][1], "frostweave", "query " .. i) end
+    T.eq(#ns.Buy.Results(), 1)
+    T.eq(ns.Buy.Results()[1].id, CLOTH)
+  end,
+
+  opening_an_item_stops_the_search = function(T)
+    local list = {}
+    for i = 1, 300 do list[i] = auction(50000 + (i % 5), "Frost thing " .. (i % 5), "S" .. i, 1, 1000 + i) end
+    list[301] = cloth("Kim", 20, silver(9))
+    local ns = setup(list)
+    T.ok(ns.Buy.Search("frost"))
+    ns.Scanner.Tick(0.1)
+    Mock.deliver(ns)
+    local sent = #Mock.queries
+    T.ok(ns.Buy.OpenItem(CLOTH, CLOTH_NAME), "the item is checked at once")
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, sent + 1)
+    T.eq(Mock.queries[sent + 1][1], CLOTH_NAME)
+    T.eq(ns.Buy.View(), "item")
+  end,
+
+  same_search_twice_runs_once = function(T)
+    local list = {}
+    for i = 1, 120 do list[i] = cloth("S" .. i, 1, 1000 + i) end
+    local ns = setup(list)
+    T.ok(ns.Buy.Search("frostweave"))
+    ns.Scanner.Tick(0.1)
+    T.ok(ns.Buy.Search("frostweave"), "already running")
+    T.ok(Mock.pump(ns))
+    T.eq(#Mock.queries, 3, "three pages, once")
+    T.eq(#ns.Buy.Results(), 1)
+  end,
+
+  queued_search_dropped_when_the_player_moves_on = function(T)
+    local ns = setup({ cloth("Kim", 20, silver(9)), auction(BOLT, BOLT_NAME, "Bob", 5, silver(80)) })
+    Mock.items[BOLT] = { name = BOLT_NAME }
+    assert(ns.Scanner.PriceCheck({ id = BOLT, name = BOLT_NAME }))
+    ns.Buy.Search("frostweave")               -- waits for the bolt check
+    ns.Lists.Create("Run")
+    ns.Buy.OpenList("own:Run")
+    T.ok(Mock.pump(ns))
+    for _ = 1, 5 do ns.Buy.Tick(0.5) end
+    T.eq(ns.Buy.View(), "list", "the list stays")
+    for _, q in ipairs(Mock.queries) do T.ok(q[1] ~= "frostweave", "the search was dropped") end
+  end,
+
   exact_cached_name_opens_the_item = function(T)
     local ns = setup({ cloth("Kim", 20, silver(9)) })
     T.ok(ns.Buy.Search(CLOTH_NAME))

@@ -273,9 +273,10 @@ Every price CraftProfit sees (Scan tracked, Scan All, CP Buy searches, price
 checks) is saved per realm and faction. Hover over any item, in your bags, a
 chat link or a vendor, and the tooltip shows:
 
-- `CraftProfit AH: 12g 50s (2h ago)`: the cheapest buyout each (not a mistake
-  listing) when it was last seen, or "not seen yet", or "none listed" when
-  the last check found none.
+- `CraftProfit AH: 12g 50s (2h ago)`: the cheapest buyout each when it was
+  last seen, or "not seen yet", or "none listed" when the last check found
+  none. A price check or a CP Buy search leaves mistake listings out; Scan
+  tracked and Scan All take the cheapest listing there was, mistake or not.
 - `Craft cost: 8g (ready-made)` or `(from scratch)` for your own recipes.
 - `x20: 250g` for a stack in your bags: what the whole stack is worth.
 

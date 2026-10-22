@@ -149,6 +149,11 @@ local function categoryText(class, subclass)
   return name
 end
 
+-- The text of the name search running now, or nil.
+function Scanner.SearchText()
+  return state ~= "idle" and job and job.search and job.text or nil
+end
+
 -- Ask the AH for one results page of a name search so the player can act on
 -- it. Not a scan: the scanner stays idle and never reads the answer. With the
 -- item's id the search is the price check's (same category), so its page
@@ -186,9 +191,28 @@ function Scanner.Stop(reason)
   ns.Fire("SCAN_FINISHED")
 end
 
+local function pagePrint(batch, total)
+  if batch == 0 then return nil end -- no late updates for empty pages
+  local _, _, firstCount, _, _, _, _, _, firstBuyout = GetAuctionItemInfo("list", 1)
+  local _, _, lastCount, _, _, _, _, _, lastBuyout = GetAuctionItemInfo("list", batch)
+  return table.concat({
+    batch, total or 0,
+    GetAuctionItemLink("list", 1) or "?", firstCount or 0, firstBuyout or 0,
+    GetAuctionItemLink("list", batch) or "?", lastCount or 0, lastBuyout or 0,
+  }, ":")
+end
+
 -- One results page of the name search (no category: every item counts).
+-- The page the client shows as it goes out (job.stale) is not its answer:
+-- a late update of it may still arrive. When that page is the scanner's own
+-- last one, the lastPrint check already tells a late update from a repeat of
+-- the same search. A retry takes any page.
 local function sendSearchQuery()
   setStatus('Searching "' .. job.text .. '": page ' .. (job.page + 1))
+  if job.stale ~= false then
+    local shown = pagePrint(GetNumAuctionItems("list"))
+    job.stale = shown ~= lastPrint and shown or nil
+  end
   Scanner.sending = true
   local ok, err = pcall(QueryAuctionItems, job.text, "", "", nil, nil, nil, job.page, nil, -1, false)
   Scanner.sending = false
@@ -284,22 +308,11 @@ local function allOwnersReady(batch)
   return true
 end
 
-local function pagePrint(batch, total)
-  if batch == 0 then return nil end -- no late updates for empty pages
-  local _, _, firstCount, _, _, _, _, _, firstBuyout = GetAuctionItemInfo("list", 1)
-  local _, _, lastCount, _, _, _, _, _, lastBuyout = GetAuctionItemInfo("list", batch)
-  return table.concat({
-    batch, total or 0,
-    GetAuctionItemLink("list", 1) or "?", firstCount or 0, firstBuyout or 0,
-    GetAuctionItemLink("list", batch) or "?", lastCount or 0, lastBuyout or 0,
-  }, ":")
-end
-
 -- A name search is done. capped: stopped at SEARCH_MAX_PAGES with more to
 -- come; exactId: stopped at the item named exactly like the search.
 local function finishSearch(capped, exactId)
   local text, now = job.text, ns.Now()
-  local complete = not capped and not exactId
+  local complete = not capped and not exactId and not job.partial
   local results, exactName = {}, nil
   for _, entry in ipairs(job.order) do
     local rows = ns.Listings.Normalize(entry.raw, ns.Listings.MineSet(), ns.Listings.Ratio())
@@ -335,12 +348,32 @@ local function finishSearch(capped, exactId)
   ns.Fire("SCAN_FINISHED")
 end
 
--- Every row of a search's results page, kept per item in first-seen order.
+-- Every row of a search's results page, kept per item in first-seen order. A
+-- row whose link never loaded makes the search partial: its items' prices
+-- are not stored.
 local function readSearchPage(batch, total)
   local wanted, exactId = job.text:lower(), nil
+  -- The AH finds names that contain the text: a readable page with no such
+  -- item answers someone else's search. Keep waiting for ours. (A page with
+  -- unreadable rows can't be told apart; it is read, as partial.)
+  if batch > 0 then
+    local ours = false
+    for i = 1, batch do
+      local name = ns.Util.ItemNameFromLink(GetAuctionItemLink("list", i))
+      if not name or name:lower():find(wanted, 1, true) then
+        ours = true
+        break
+      end
+    end
+    if not ours then
+      job.linkWait = nil
+      return
+    end
+  end
   for i = 1, batch do
     local link = GetAuctionItemLink("list", i)
     local id = ns.Util.ItemIDFromLink(link)
+    if not id then job.partial = true end
     if id then
       local _, texture, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
       local entry = job.found[id]
@@ -361,7 +394,7 @@ local function readSearchPage(batch, total)
   if more and job.page + 1 >= SEARCH_MAX_PAGES then return finishSearch(true) end
   if more then
     job.page = job.page + 1
-    job.retries = 0
+    job.retries, job.stale = 0, nil
     state = "send"
   else
     finishSearch(false)
@@ -382,6 +415,12 @@ local function readPage(force)
   end
   local fingerprint = pagePrint(batch, total)
   if not force and fingerprint and fingerprint == lastPrint and job.queryKey ~= lastKey then return end
+  -- A late update of the page shown when a name search went out (Browse,
+  -- another addon, a page Buyer loaded) is not the search's answer.
+  if job.search and fingerprint and fingerprint == job.stale then
+    job.linkWait = nil -- the query timeout still resends
+    return
+  end
   if not force and (not allLinksReady(batch) or (job.collect and not allOwnersReady(batch))) then
     job.linkWait = job.linkWait or 0
     return
@@ -545,6 +584,7 @@ function Scanner.Tick(elapsed)
         job.retries = job.retries + 1
         -- The retry's answer may legitimately repeat the last page.
         lastPrint = nil
+        if job.search then job.stale = false end
         state = "send"
       elseif job.search then
         Scanner.Stop("no answer from the AH")

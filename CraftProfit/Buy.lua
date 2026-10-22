@@ -68,8 +68,23 @@ local function check(id, name, force)
   return ok, err
 end
 
+-- The player asked for something else: a name search of ours that runs or
+-- waits for the scanner is dropped, so the new request starts at once.
+local function dropPending()
+  wanted = nil
+  local running = searching
+  searching = nil
+  if running and ns.Scanner.SearchText() == running then ns.Scanner.Stop("replaced") end
+end
+
 -- The name search behind the results view.
 local function search(text)
+  if searching == text and ns.Scanner.SearchText() == text then
+    view, back, listKey = "results", nil, nil -- already running
+    changed()
+    return true
+  end
+  dropPending()
   view, back, listKey = "results", nil, nil
   results, capped = nil, false
   local ok, err = ns.Scanner.Search(text, { stopOnExact = true })
@@ -115,7 +130,7 @@ end
 function Buy.OpenItem(id, name, needN)
   name = name or (id and GetItemInfo(id))
   if not id or not name then return false, "no-name" end
-  searching = nil -- whatever the player asks for now wins over a search in flight
+  dropPending() -- whatever the player asks for now wins over a search in flight
   if view == "results" or view == "list" then
     back = view
   elseif view ~= "item" then
@@ -282,7 +297,7 @@ end
 
 -- Show the list `key` (from ns.Lists.All).
 function Buy.OpenList(key)
-  searching = nil
+  dropPending()
   view, back, listKey = "list", nil, key
   changed()
 end
